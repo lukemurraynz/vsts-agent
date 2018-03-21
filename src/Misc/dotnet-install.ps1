@@ -34,8 +34,17 @@
     Architecture of dotnet binaries to be installed.
     Possible values are: <auto>, x64 and x86
 .PARAMETER SharedRuntime
+    This parameter is obsolete and may be removed in a future version of this script.
+    The recommended alternative is '-Runtime dotnet'.
+
     Default: false
-    Installs just the shared runtime bits, not the entire SDK
+    Installs just the shared runtime bits, not the entire SDK.
+    This is equivalent to specifying `-Runtime dotnet`.
+.PARAMETER Runtime
+    Installs just a shared runtime, not the entire SDK.
+    Possible values:
+        - dotnet     - the Microsoft.NETCore.App shared runtime
+        - aspnetcore - the Microsoft.AspNetCore.App shared runtime
 .PARAMETER DryRun
     If set it will not perform installation but instead display what command line to use to consistently install
     currently requested version of dotnet cli. In example if you specify version 'latest' it will display a link
@@ -49,10 +58,13 @@
 .PARAMETER AzureFeed
     Default: https://dotnetcli.azureedge.net/dotnet
     This parameter typically is not changed by the user.
-    It allows to change URL for the Azure feed used by this installer.
+    It allows changing the URL for the Azure feed used by this installer.
 .PARAMETER UncachedFeed
     This parameter typically is not changed by the user.
-    It allows to change URL for the Uncached feed used by this installer.
+    It allows changing the URL for the Uncached feed used by this installer.
+.PARAMETER FeedCredential
+    Used as a query string to append to the Azure feed.
+    It allows changing the URL to use non-public blob storage accounts.
 .PARAMETER ProxyAddress
     If set, the installer will use the proxy when making web requests
 .PARAMETER ProxyUseDefaultCredentials
@@ -68,11 +80,15 @@ param(
    [string]$Version="Latest",
    [string]$InstallDir="<auto>",
    [string]$Architecture="<auto>",
+   [ValidateSet("dotnet", "aspnetcore", IgnoreCase = $false)]
+   [string]$Runtime,
+   [Obsolete("This parameter may be removed in a future version of this script. The recommended alternative is '-Runtime dotnet'.")]
    [switch]$SharedRuntime,
    [switch]$DryRun,
    [switch]$NoPath,
    [string]$AzureFeed="https://dotnetcli.azureedge.net/dotnet",
    [string]$UncachedFeed="https://dotnetcli.blob.core.windows.net/dotnet",
+   [string]$FeedCredential,
    [string]$ProxyAddress,
    [switch]$ProxyUseDefaultCredentials,
    [switch]$SkipNonVersionedFiles
@@ -83,6 +99,10 @@ $ErrorActionPreference="Stop"
 $ProgressPreference="SilentlyContinue"
 
 $BinFolderRelativePath=""
+
+if ($SharedRuntime -and (-not $Runtime)) {
+    $Runtime = "dotnet"
+}
 
 # example path with regex: shared/1.0.0-beta-12345/somepath
 $VersionRegEx="/\d+\.\d+[^/]+/"
@@ -200,8 +220,9 @@ function GetHTTPResponse([Uri] $Uri)
             # Default timeout for HttpClient is 100s.  For a 50 MB download this assumes 500 KB/s average, any less will time out
             # 10 minutes allows it to work over much slower connections.
             $HttpClient.Timeout = New-TimeSpan -Minutes 10
-            $Response = $HttpClient.GetAsync($Uri).Result
+            $Response = $HttpClient.GetAsync("${Uri}${FeedCredential}").Result
             if (($Response -eq $null) -or (-not ($Response.IsSuccessStatusCode))) {
+                 # The feed credential is potentially sensitive info. Do not log FeedCredential to console output.
                 $ErrorMsg = "Failed to download $Uri."
                 if ($Response -ne $null) {
                     $ErrorMsg += "  $Response"
@@ -225,16 +246,22 @@ function Get-Latest-Version-Info([string]$AzureFeed, [string]$Channel, [bool]$Co
     Say-Invocation $MyInvocation
 
     $VersionFileUrl = $null
-    if ($SharedRuntime) {
+    if ($Runtime -eq "dotnet") {
         $VersionFileUrl = "$UncachedFeed/Runtime/$Channel/latest.version"
     }
-    else {
+    elseif ($Runtime -eq "aspnetcore") {
+        $VersionFileUrl = "$UncachedFeed/aspnetcore/Runtime/$Channel/latest.version"
+    }
+    elseif (-not $Runtime) {
         if ($Coherent) {
             $VersionFileUrl = "$UncachedFeed/Sdk/$Channel/latest.coherent.version"
         }
         else {
             $VersionFileUrl = "$UncachedFeed/Sdk/$Channel/latest.version"
         }
+    }
+    else {
+        throw "Invalid value for `$Runtime"
     }
 
     $Response = GetHTTPResponse -Uri $VersionFileUrl
@@ -272,11 +299,17 @@ function Get-Specific-Version-From-Version([string]$AzureFeed, [string]$Channel,
 function Get-Download-Link([string]$AzureFeed, [string]$SpecificVersion, [string]$CLIArchitecture) {
     Say-Invocation $MyInvocation
 
-    if ($SharedRuntime) {
+    if ($Runtime -eq "dotnet") {
         $PayloadURL = "$AzureFeed/Runtime/$SpecificVersion/dotnet-runtime-$SpecificVersion-win-$CLIArchitecture.zip"
     }
-    else {
+    elseif ($Runtime -eq "aspnetcore") {
+        $PayloadURL = "$AzureFeed/aspnetcore/Runtime/$SpecificVersion/aspnetcore-runtime-$SpecificVersion-win-$CLIArchitecture.zip"
+    }
+    elseif (-not $Runtime) {
         $PayloadURL = "$AzureFeed/Sdk/$SpecificVersion/dotnet-sdk-$SpecificVersion-win-$CLIArchitecture.zip"
+    }
+    else {
+        throw "Invalid value for `$Runtime"
     }
 
     Say-Verbose "Constructed primary payload URL: $PayloadURL"
@@ -287,11 +320,14 @@ function Get-Download-Link([string]$AzureFeed, [string]$SpecificVersion, [string
 function Get-LegacyDownload-Link([string]$AzureFeed, [string]$SpecificVersion, [string]$CLIArchitecture) {
     Say-Invocation $MyInvocation
 
-    if ($SharedRuntime) {
+    if (-not $Runtime) {
+        $PayloadURL = "$AzureFeed/Sdk/$SpecificVersion/dotnet-dev-win-$CLIArchitecture.$SpecificVersion.zip"
+    }
+    elseif ($Runtime -eq "dotnet") {
         $PayloadURL = "$AzureFeed/Runtime/$SpecificVersion/dotnet-win-$CLIArchitecture.$SpecificVersion.zip"
     }
     else {
-        $PayloadURL = "$AzureFeed/Sdk/$SpecificVersion/dotnet-dev-win-$CLIArchitecture.$SpecificVersion.zip"
+        return $null
     }
 
     Say-Verbose "Constructed legacy payload URL: $PayloadURL"
@@ -460,7 +496,9 @@ $LegacyDownloadLink = Get-LegacyDownload-Link -AzureFeed $AzureFeed -SpecificVer
 if ($DryRun) {
     Say "Payload URLs:"
     Say "Primary - $DownloadLink"
-    Say "Legacy - $LegacyDownloadLink"
+    if ($LegacyDownloadLink) {
+        Say "Legacy - $LegacyDownloadLink"
+    }
     Say "Repeatable invocation: .\$($MyInvocation.Line)"
     exit 0
 }
@@ -468,10 +506,25 @@ if ($DryRun) {
 $InstallRoot = Resolve-Installation-Path $InstallDir
 Say-Verbose "InstallRoot: $InstallRoot"
 
-$IsSdkInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage "sdk" -SpecificVersion $SpecificVersion
-Say-Verbose ".NET SDK installed? $IsSdkInstalled"
-if ($IsSdkInstalled) {
-    Say ".NET SDK version $SpecificVersion is already installed."
+if ($Runtime -eq "dotnet") {
+    $assetName = ".NET Core Runtime"
+    $dotnetPackageRelativePath = "shared\Microsoft.NETCore.App"
+}
+elseif ($Runtime -eq "aspnetcore") {
+    $assetName = "ASP.NET Core Runtime"
+    $dotnetPackageRelativePath = "shared\Microsoft.AspNetCore.App"
+}
+elseif (-not $Runtime) {
+    $assetName = ".NET Core SDK"
+    $dotnetPackageRelativePath = "sdk"
+}
+else {
+    throw "Invalid value for `$Runtime"
+}
+
+$isAssetInstalled = Is-Dotnet-Package-Installed -InstallRoot $InstallRoot -RelativePathToPackage $dotnetPackageRelativePath -SpecificVersion $SpecificVersion
+if ($isAssetInstalled) {
+    Say "$assetName version $SpecificVersion is already installed."
     Prepend-Sdk-InstallRoot-To-Path -InstallRoot $InstallRoot -BinFolderRelativePath $BinFolderRelativePath
     exit 0
 }
@@ -493,11 +546,16 @@ try {
 }
 catch {
     Say "Cannot download: $DownloadLink"
-    $DownloadLink = $LegacyDownloadLink
-    $ZipPath = [System.IO.Path]::combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
-    Say-Verbose "Legacy zip path: $ZipPath"
-    Say "Downloading legacy link: $DownloadLink"
-    DownloadFile -Uri $DownloadLink -OutPath $ZipPath
+    if ($LegacyDownloadLink) {
+        $DownloadLink = $LegacyDownloadLink
+        $ZipPath = [System.IO.Path]::combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+        Say-Verbose "Legacy zip path: $ZipPath"
+        Say "Downloading legacy link: $DownloadLink"
+        DownloadFile -Uri $DownloadLink -OutPath $ZipPath
+    }
+    else {
+        throw "Could not download $assetName version $SpecificVersion"
+    }
 }
 
 Say "Extracting zip from $DownloadLink"

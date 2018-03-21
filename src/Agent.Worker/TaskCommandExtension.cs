@@ -309,13 +309,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         private void ProcessTaskIssueCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
         {
-            string logLine = "";
             Issue taskIssue = null;
 
             String issueType;
             if (eventProperties.TryGetValue(TaskIssueEventProperties.Type, out issueType))
             {
-                taskIssue = CreateIssue(context, issueType, data, eventProperties, out logLine);
+                taskIssue = CreateIssue(context, issueType, data, eventProperties);
             }
 
             if (taskIssue == null)
@@ -325,21 +324,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
 
             context.AddIssue(taskIssue);
-
-            if (!String.IsNullOrEmpty(logLine))
-            {
-                if (taskIssue.Type == IssueType.Error)
-                {
-                    context.Write(WellKnownTags.Error, logLine);
-                }
-                else
-                {
-                    context.Write(WellKnownTags.Warning, logLine);
-                }
-            }
         }
 
-        private Issue CreateIssue(IExecutionContext context, string issueType, String message, Dictionary<String, String> properties, out String messageToLog)
+        private Issue CreateIssue(IExecutionContext context, string issueType, String message, Dictionary<String, String> properties)
         {
             Issue issue = new Issue()
             {
@@ -358,8 +345,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             {
                 throw new Exception($"issue type {issueType} is not an expected issue type.");
             }
-
-            messageToLog = message;
 
             String sourcePath;
             if (properties.TryGetValue(ProjectIssueProperties.SourcePath, out sourcePath))
@@ -404,7 +389,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                     properties.TryGetValue(ProjectIssueProperties.Code, out codeValue);
 
                     //ex. Program.cs(13, 18): error CS1002: ; expected
-                    messageToLog = String.Format(CultureInfo.InvariantCulture, "{0}({1},{2}): {3} {4}: {5}",
+                    message = String.Format(CultureInfo.InvariantCulture, "{0}({1},{2}): {3} {4}: {5}",
                         sourcePathValue,
                         lineNumberValue,
                         columnNumberValue,
@@ -422,7 +407,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 }
             }
 
-            issue.Message = messageToLog;
+            issue.Message = message;
 
             return issue;
         }
@@ -489,6 +474,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 Boolean.TryParse(isOutputValue, out isOutput);
             }
 
+            bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
+            if (allowMultilineSecret == null)
+            {
+                allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
+            }
+
+            if (!string.IsNullOrEmpty(data) &&
+                data.Contains(Environment.NewLine) &&
+                !allowMultilineSecret.Value)
+            {
+                throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
+            }
+
             context.SetVariable(name, data, isSecret, isOutput);
         }
 
@@ -510,6 +508,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             if (eventProperties.TryGetValue(TaskSetTaskVariableEventProperties.IsSecret, out isSecretValue))
             {
                 Boolean.TryParse(isSecretValue, out isSecret);
+            }
+
+            bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
+            if (allowMultilineSecret == null)
+            {
+                allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
+            }
+
+            if (!string.IsNullOrEmpty(data) &&
+                data.Contains(Environment.NewLine) &&
+                !allowMultilineSecret.Value)
+            {
+                throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
             }
 
             context.TaskVariables.Set(name, data, isSecret);
@@ -539,7 +550,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                     _secretMasker.AddValue(Uri.EscapeDataString(data));
                 }
             }
-            
+
             String endpointIdInput;
             if (!eventProperties.TryGetValue(TaskSetEndpointEventProperties.EndpointId, out endpointIdInput) || String.IsNullOrEmpty(endpointIdInput))
             {
@@ -557,7 +568,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             {
                 throw new Exception(StringUtil.Loc("InvalidEndpointId"));
             }
-            
+
             if (String.Equals(field, "url", StringComparison.OrdinalIgnoreCase))
             {
                 Uri uri;
@@ -587,7 +598,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             else
             {
                 throw new Exception(StringUtil.Loc("InvalidEndpointField"));
-            }            
+            }
         }
 
         private void ProcessTaskPrepandPathCommand(IExecutionContext context, string data)

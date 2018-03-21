@@ -1,4 +1,4 @@
-# YAML getting started - Tasks (internal only, public preview soon)
+# YAML getting started - Tasks
 
 ## Syntax
 
@@ -17,7 +17,7 @@ steps:
 
   enabled: true | false
 
-  continueOnError: true | false
+  continueOnError: true | false # On failure, flips the result to SucceededWithIssues
 
   condition: string # Defaults to succeeded(). https://go.microsoft.com/fwlink/?linkid=842996
 
@@ -55,4 +55,4 @@ The detailed task metadata (contribution identifier and GUID) can be found from:
 
 ## Export to YAML
 
-Coming soon.
+Refer to View Yaml link at the top of the build definition editor.

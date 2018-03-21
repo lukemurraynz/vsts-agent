@@ -228,6 +228,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Handlers
                                                                        fileName: vstsPSHostExe,
                                                                        arguments: "",
                                                                        environment: Environment,
+                                                                       requireExitCodeZero: false,
+                                                                       outputEncoding: null,
+                                                                       killProcessOnCancel: false,
                                                                        cancellationToken: ExecutionContext.CancellationToken);
 
                     // the exit code from vstsPSHost.exe indicate how many error record we get during execution
@@ -348,9 +351,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Handlers
             foreach (ServiceEndpoint endpoint in ExecutionContext.Endpoints)
             {
                 string partialKey = null;
-                if (string.Equals(endpoint.Name, ServiceEndpoints.SystemVssConnection, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(endpoint.Name, "SystemVssConnection", StringComparison.OrdinalIgnoreCase))
                 {
-                    partialKey = ServiceEndpoints.SystemVssConnection.ToUpperInvariant();
+                    partialKey = "SystemVssConnection".ToUpperInvariant();
                     AddEnvironmentVariable("VSTSPSHOSTSYSTEMENDPOINT_URL", endpoint.Url.ToString());
                     AddEnvironmentVariable("VSTSPSHOSTSYSTEMENDPOINT_AUTH", JsonUtility.ToString(endpoint.Authorization));
                 }
@@ -367,7 +370,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Handlers
 
                     ids.Add(partialKey);
                     AddEnvironmentVariable("VSTSPSHOSTENDPOINT_URL_" + partialKey, endpoint.Url.ToString());
-                    AddEnvironmentVariable("VSTSPSHOSTENDPOINT_NAME_" + partialKey, endpoint.Name);
+
+                    // We fixed endpoint.name to be the name of the endpoint in yaml, before endpoint.name=endpoint.id is a guid
+                    // However, for source endpoint, the endpoint.id is Guid.Empty and endpoint.name is already the name of the endpoint
+                    // The legacy PSHost use the Guid to retrive endpoint, the legacy PSHost assume `VSTSPSHOSTENDPOINT_NAME_` is the Guid.
+                    if (endpoint.Id == Guid.Empty && endpoint.Data.ContainsKey("repositoryId"))
+                    {
+                        AddEnvironmentVariable("VSTSPSHOSTENDPOINT_NAME_" + partialKey, endpoint.Name);
+                    }
+                    else
+                    {
+                        AddEnvironmentVariable("VSTSPSHOSTENDPOINT_NAME_" + partialKey, endpoint.Id.ToString());
+                    }
+
                     AddEnvironmentVariable("VSTSPSHOSTENDPOINT_TYPE_" + partialKey, endpoint.Type);
                     AddEnvironmentVariable("VSTSPSHOSTENDPOINT_AUTH_" + partialKey, JsonUtility.ToString(endpoint.Authorization));
                     AddEnvironmentVariable("VSTSPSHOSTENDPOINT_DATA_" + partialKey, JsonUtility.ToString(endpoint.Data));

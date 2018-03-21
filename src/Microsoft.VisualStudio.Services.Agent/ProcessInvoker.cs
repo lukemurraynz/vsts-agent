@@ -503,7 +503,7 @@ namespace Microsoft.VisualStudio.Services.Agent
                     {
                         PROCESS_BASIC_INFORMATION pbi = new PROCESS_BASIC_INFORMATION();
                         int returnLength = 0;
-                        int queryResult = NtQueryInformationProcess(proc.SafeHandle.DangerousGetHandle(), PROCESSINFOCLASS.ProcessBasicInformation, ref pbi, pbi.Size, ref returnLength);
+                        int queryResult = NtQueryInformationProcess(proc.SafeHandle.DangerousGetHandle(), PROCESSINFOCLASS.ProcessBasicInformation, ref pbi, Marshal.SizeOf(pbi), ref returnLength);
                         if (queryResult == 0) // == 0 is OK
                         {
                             Trace.Verbose($"Process: {proc.Id} is child process of {pbi.InheritedFromUniqueProcessId}.");
@@ -625,15 +625,11 @@ namespace Microsoft.VisualStudio.Services.Agent
             public long BasePriority;
             public long UniqueProcessId;
             public long InheritedFromUniqueProcessId;
-
-            public uint Size
-            {
-                get { return (6 * sizeof(long)); }
-            }
         };
 
+
         [DllImport("ntdll.dll", SetLastError = true)]
-        private static extern int NtQueryInformationProcess(IntPtr processHandle, PROCESSINFOCLASS processInformationClass, ref PROCESS_BASIC_INFORMATION processInformation, uint processInformationLength, ref int returnLength);
+        private static extern int NtQueryInformationProcess(IntPtr processHandle, PROCESSINFOCLASS processInformationClass, ref PROCESS_BASIC_INFORMATION processInformation, int processInformationLength, ref int returnLength);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool GenerateConsoleCtrlEvent(ConsoleCtrlEvent sigevent, int dwProcessGroupId);

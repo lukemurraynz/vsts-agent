@@ -1,6 +1,6 @@
 
 
-# ![Linux](../res/linux_med.png) Linux System Prerequisites
+# ![Linux](../res/linux_med.png) Linux System Prerequisites [2.125.0 or above]
 
 ## Supported Distributions and Versions
   - Red Hat Enterprise Linux 7
@@ -26,7 +26,7 @@ Execute ./bin/installdependencies.sh to install any missing Dotnet Core 2.0 depe
 ```
 You can easily correct the problem by execute `./bin/installdependencies.sh`.  
 The `installdependencies.sh` script should install all required dependencies on all supported Linux versions   
-
+> Note: The `installdependencies.sh` script will try to use the default package management mechanism on your Linux flavor (ex. `yum`/`apt-get`/`apt`). You might need to deal with error coming from the package management mechanism related to your setup, like [#1353](https://github.com/Microsoft/vsts-agent/issues/1353)
 
 ## Git
 

@@ -1,19 +1,16 @@
-# YAML getting started - YAML schema (internal only, public preview soon)
+# YAML getting started - YAML schema
 
 ## Structural overview
 
-The YAML document describes an entire process.
-
-At a high level, the structure of a process is:
+At a high level, the structure of the YAML document is:
 
 ```
-├───resources (endpoints, etc)
 └───phases
     ├───phase
     │   ├───queue|deployment|server
     │   ├───variables
     │   └───steps
-    │       ├───step # e.g. run msbuild
+    │       ├───step # e.g. script: echo hello world
     │       └───[...]
     │
     └───[...]
@@ -21,9 +18,9 @@ At a high level, the structure of a process is:
 
 ## Level inference
 
-In the spirit of simplicity, the YAML file is not required to define the full structural hierarchy.
+In the spirit of simplicity, the YAML file is not required to define the schema hierarchy.
 
-For example, a very simple process may only define steps (one job implied, one phase implied):
+For example, a very simple pipeline may only define steps (one phase implied):
 
 ```yaml
 steps:
@@ -31,7 +28,7 @@ steps:
 - script: echo hello world from script 2
 ```
 
-In short, where a process is defined, properties for a single phase can be specified without defining `phases -> phase`.
+In short, at the top of the file, properties for a single phase can be specified without defining an array of phases.
 
 <!-- Commenting-out template schema for now
 The inference rules apply to templates as well. For details, see the schema reference section below.
@@ -39,20 +36,18 @@ The inference rules apply to templates as well. For details, see the schema refe
 
 ## Schema reference
 
-All YAML definitions start with an entry \"process\" file.
+All YAML definitions start with \"pipeline\" schema.
 
-### Process structures
+### Pipeline schema
 
-#### process
+#### pipeline
 
 ```yaml
-# process properties
-resources: [ repoResource ]
+# pipeline properties
+name: string
 phases: [ phase ]
 
 # phase properties - not allowed when "phases" is defined
-displayName: string
-name: string
 dependsOn: string | [ string ]
 condition: string
 continueOnError: true | false
@@ -63,14 +58,14 @@ variables: { string: string }
 steps: [ script | powershell | bash | task | checkout ]
 ```
 
-#### repoResource
+<!-- #### repoResource
 
 ```yaml
 repo: string # e.g. repo: self
 clean: true | false
 fetchDepth: number
 lfs: true | false
-```
+``` -->
 
 <!-- Commenting-out template schema for now
 #### processTemplateReference
@@ -109,7 +104,7 @@ steps: [ script | powershell | bash | task | stepsPhase | stepsTemplateReference
 ```
 -->
 
-### Phase structures
+### Phase schema
 
 #### phase
 
@@ -221,7 +216,7 @@ variables: [ variable ]
 ```
 -->
 
-### Step structures
+### Step schema
 
 #### script
 

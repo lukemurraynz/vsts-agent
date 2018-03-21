@@ -85,10 +85,6 @@ OSX: OSX Keychain
 Linux: Encrypted with symmetric key based on machine id
 ```
 
-**Windows service configure limitation**  
-Since we store your client certificate private key password into `Windows Credential Store` and the `Windows Credential Store` is per user, when you configure the agent as Windows service, you need run the configuration as the same user as the service is going to run as.  
-Ex, in order to configure the agent service run as `mydomain\buildadmin`, you need either login the box as `mydomain\buildadmin` and run `config.cmd` or login the box as someone else but use `Run as different user` option when you run `config.cmd` to run as `mydomain\buildadmin`  
-
 ## How agent handle client cert within a Build/Release job
 
 After configuring client cert for agent, agent infrastructure will start talk to VSTS/TFS service using the client cert configured.  
@@ -134,7 +130,7 @@ Root CA cert:
 `MakeCert -n "CN=Enterprise_issuer_2" -pe -ss Root -sr LocalMachine -sky exchange -m 6 -a sha1 -len 2048 -r -eku 1.3.6.1.5.5.7.3.2,1.3.6.1.5.5.7.3.1`  
 
 Server cert:  
-`MakeCert -n "CN=TFSAT.mycompany.com" -pe -ss My -sr LocalMachine -sky exchange -m 6 -in Enterprise_issuer_2 -is Root -ir LocalMachine -a sha1 -sku 1.3.6.1.5.5.7.3.1 -len 2048`  
+`MakeCert -n "CN=TFSAT.mycompany.com" -pe -ss My -sr LocalMachine -sky exchange -m 6 -in Enterprise_issuer_2 -is Root -ir LocalMachine -a sha1 -eku 1.3.6.1.5.5.7.3.1 -len 2048`  
 
 Client cert:  
 `MakeCert -n "CN=mycompany\ting" -pe -ss My -sr CurrentUser -sky exchange -m 6 -in Enterprise_issuer_2 -is Root -ir LocalMachine -a sha1 -eku 1.3.6.1.5.5.7.3.2 -len 2048`

@@ -32,6 +32,7 @@ namespace Microsoft.VisualStudio.Services.Agent
 #endif
         public static string SecretMask = "********";
         public static string TFBuild = "TF_BUILD";
+        public static string ProcessLookupId = "VSTS_PROCESS_LOOKUP_ID";
 
         // This enum is embedded within the Constants class to make it easier to reference and avoid
         // ambiguous type reference with System.Runtime.InteropServices.OSPlatform.
@@ -44,7 +45,7 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public static class Agent
         {
-            public static readonly string Version = "2.125.0";
+            public static readonly string Version = "2.131.0";
 
 #if OS_LINUX
             public static readonly OSPlatform Platform = OSPlatform.Linux;
@@ -123,6 +124,7 @@ namespace Microsoft.VisualStudio.Services.Agent
                     public static readonly string DeploymentGroup = "deploymentgroup";
                     public static readonly string DeploymentPool = "deploymentpool";
                     public static readonly string OverwriteAutoLogon = "overwriteautologon";
+                    public static readonly string GitUseSChannel = "gituseschannel";
                     public static readonly string Help = "help";
                     public static readonly string MachineGroup = "machinegroup";
                     public static readonly string Replace = "replace";

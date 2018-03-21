@@ -24,8 +24,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
     [ServiceLocator(Default = typeof(DiagnosticLogManager))]
     public interface IDiagnosticLogManager : IAgentService
     {
-        Task UploadDiagnosticLogsAsync(IExecutionContext executionContext, 
-                                  AgentJobRequestMessage message, 
+        Task UploadDiagnosticLogsAsync(IExecutionContext executionContext,
+                                  AgentJobRequestMessage message,
                                   DateTime jobStartTimeUtc);
     }
 
@@ -38,8 +38,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
     //          support.zip
     public sealed class DiagnosticLogManager : AgentService, IDiagnosticLogManager
     {
-        public async Task UploadDiagnosticLogsAsync(IExecutionContext executionContext, 
-                                         AgentJobRequestMessage message, 
+        public async Task UploadDiagnosticLogsAsync(IExecutionContext executionContext,
+                                         AgentJobRequestMessage message,
                                          DateTime jobStartTimeUtc)
         {
             executionContext.Debug("Starting diagnostic file upload.");
@@ -57,7 +57,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             executionContext.Debug("Creating diagnostic log files folder.");
             string supportFilesFolder = Path.Combine(supportRootFolder, "files");
             Directory.CreateDirectory(supportFilesFolder);
-           
+
             // Create the environment file
             // \_layout\_work\_temp\[jobname-support]\files\environment.txt
             var configurationStore = HostContext.GetService<IConfigurationStore>();
@@ -68,7 +68,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             executionContext.Debug("Creating diagnostic log environment file.");
             string environmentFile = Path.Combine(supportFilesFolder, "environment.txt");
+#if OS_WINDOWS            
+            string content = await GetEnvironmentContent(agentId, agentName, message.Tasks);
+#else            
             string content = GetEnvironmentContent(agentId, agentName, message.Tasks);
+#endif            
             File.WriteAllText(environmentFile, content);
 
             // Create the capabilities file
@@ -83,14 +87,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             List<string> workerDiagLogFiles = GetWorkerDiagLogFiles(HostContext.GetDirectory(WellKnownDirectory.Diag), jobStartTimeUtc);
             executionContext.Debug($"Copying {workerDiagLogFiles.Count()} worker diag logs.");
 
-            foreach(string workerLogFile in workerDiagLogFiles)
+            foreach (string workerLogFile in workerDiagLogFiles)
             {
                 ArgUtil.File(workerLogFile, nameof(workerLogFile));
 
                 string destination = Path.Combine(supportFilesFolder, Path.GetFileName(workerLogFile));
                 File.Copy(workerLogFile, destination);
             }
-            
+
             executionContext.Debug("Zipping diagnostic files.");
 
             string buildNumber = executionContext.Variables.Build_Number ?? "UnknownBuildNumber";
@@ -107,7 +111,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             string metadataFileName = $"diagnostics-{buildName}-{phaseName}.json";
             string metadataFilePath = Path.Combine(supportFilesFolder, metadataFileName);
             string phaseResult = GetTaskResultAsString(executionContext.Result);
-            
+
             IOUtil.SaveObject(new DiagnosticLogMetadata(agentName, agentId, poolId, phaseName, diagnosticsZipFileName, phaseResult), metadataFilePath);
 
             executionContext.QueueAttachFile(type: CoreAttachmentType.DiagnosticLog, name: metadataFileName, filePath: metadataFilePath);
@@ -172,10 +176,100 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                     workerLogFiles.Add(file.FullName);
                 }
             }
-            
+
             return workerLogFiles;
         }
 
+#if OS_WINDOWS
+        private async Task<string> GetEnvironmentContent(int agentId, string agentName, ReadOnlyCollection<TaskInstance> tasks)
+        {
+            var builder = new StringBuilder();
+
+            builder.AppendLine($"Environment file created at(UTC): {DateTime.UtcNow}"); // TODO: Format this like we do in other places.
+            builder.AppendLine($"Agent Version: {Constants.Agent.Version}");
+            builder.AppendLine($"Agent Id: {agentId}");
+            builder.AppendLine($"Agent Name: {agentName}");
+            builder.AppendLine($"OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+            builder.AppendLine("Tasks:");
+
+            foreach (TaskInstance task in tasks)
+            {
+                builder.AppendLine($"\tName: {task.Name} Version: {task.Version}");
+            }
+
+            // windows defender on/off
+            builder.AppendLine($"Defender enabled: {IsDefenderEnabled()}");
+
+            // firewall on/off
+            builder.AppendLine($"Firewall enabled: {IsFirewallEnabled()}");
+
+            // $psversiontable
+            builder.AppendLine("Powershell Version Info:");
+            builder.AppendLine(await GetPsVersionInfo());
+            return builder.ToString();
+        }
+
+        // Returns whether or not Windows Defender is running.
+        private bool IsDefenderEnabled()
+        {
+            return Process.GetProcessesByName("MsMpEng.exe").FirstOrDefault() != null;
+        }
+
+        // Returns whether or not the Windows firewall is enabled.
+        private bool IsFirewallEnabled()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.LocalMachine.OpenSubKey("System\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile"))
+                {
+                    if (key == null) { return false; }
+
+                    Object o = key.GetValue("EnableFirewall");
+                    if (o == null) { return false; }
+
+                    int firewall = (int)o;
+                    if (firewall == 1) { return true; }
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task<string> GetPsVersionInfo()
+        {
+            var builder = new StringBuilder();
+
+            string powerShellExe = HostContext.GetService<IPowerShellExeUtil>().GetPath();
+            string arguments = @"Write-Host ($PSVersionTable | Out-String)";
+            using (var processInvoker = HostContext.CreateService<IProcessInvoker>())
+            {
+                processInvoker.OutputDataReceived += (object sender, ProcessDataReceivedEventArgs args) =>
+                {
+                    builder.AppendLine(args.Data);
+                };
+
+                processInvoker.ErrorDataReceived += (object sender, ProcessDataReceivedEventArgs args) =>
+                {
+                    builder.AppendLine(args.Data);
+                };
+
+                await processInvoker.ExecuteAsync(
+                    workingDirectory: HostContext.GetDirectory(WellKnownDirectory.Bin),
+                    fileName: powerShellExe,
+                    arguments: arguments,
+                    environment: null,
+                    requireExitCodeZero: false,
+                    outputEncoding: null,
+                    killProcessOnCancel: false,
+                    cancellationToken: default(CancellationToken));
+            }
+
+            return builder.ToString();
+        }
+#else
         private string GetEnvironmentContent(int agentId, string agentName, ReadOnlyCollection<TaskInstance> tasks)
         {
             var builder = new StringBuilder();
@@ -192,47 +286,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 builder.AppendLine($"\tName: {task.Name} Version: {task.Version}");
             }
 
-#if OS_WINDOWS
-            // windows defender on/off
-            builder.AppendLine($"Defender enabled: {IsDefenderEnabled()}");
-
-            // firewall on/off
-            builder.AppendLine($"Firewall enabled: {IsFirewallEnabled()}");
-#endif
-
             return builder.ToString();
-        }
-
-#if OS_WINDOWS
-        // Returns whether or not Windows Defender is running.
-        private static bool IsDefenderEnabled()
-        {
-            return Process.GetProcessesByName("MsMpEng.exe").FirstOrDefault() != null;
-        }
-#endif
-
-#if OS_WINDOWS
-        // Returns whether or not the Windows firewall is enabled.
-        private static bool IsFirewallEnabled()
-        {
-            try 
-            {
-                using (RegistryKey key = Registry.LocalMachine.OpenSubKey("System\\CurrentControlSet\\Services\\SharedAccess\\Parameters\\FirewallPolicy\\StandardProfile")) 
-                {
-                    if (key == null) { return false; } 
-
-                    Object o = key.GetValue("EnableFirewall");
-                    if (o == null) { return false; } 
-
-                    int firewall = (int) o;
-                    if (firewall == 1) { return true; } 
-                    return false;
-                }
-            } 
-            catch 
-            {
-                return false;
-            }
         }
 #endif
     }
