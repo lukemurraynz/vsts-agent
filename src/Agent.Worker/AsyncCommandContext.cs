@@ -1,4 +1,7 @@
-﻿using System;
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 
@@ -13,6 +16,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
         void Output(string message);
         void Debug(string message);
         Task WaitAsync();
+        IHostContext GetHostContext();
     }
 
     public class AsyncCommandContext : AgentService, IAsyncCommandContext
@@ -45,6 +49,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
         {
             _executionContext = context;
             Name = name;
+        }
+
+        public IHostContext GetHostContext()
+        {
+            return _executionContext.GetHostContext();
         }
 
         public void Output(string message)

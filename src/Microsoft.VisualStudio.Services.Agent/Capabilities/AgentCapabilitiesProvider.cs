@@ -1,3 +1,7 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+using Agent.Sdk;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using Microsoft.Win32;
 using System;
@@ -19,12 +23,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Capabilities
             var capabilities = new List<Capability>();
             Add(capabilities, "Agent.Name", settings.AgentName ?? string.Empty);
             Add(capabilities, "Agent.OS", VarUtil.OS);
-#if OS_WINDOWS
-            Add(capabilities, "Agent.OSVersion", GetOSVersionString());
-            Add(capabilities, "Cmd", Environment.GetEnvironmentVariable("comspec"));
-#endif
+            Add(capabilities, "Agent.OSArchitecture", VarUtil.OSArchitecture);
+            if (PlatformUtil.RunningOnWindows)
+            {
+                Add(capabilities, "Agent.OSVersion", GetOSVersionString());
+                Add(capabilities, "Cmd", Environment.GetEnvironmentVariable("comspec"));
+            }
             Add(capabilities, "InteractiveSession", (HostContext.StartupType != StartupType.Service).ToString());
-            Add(capabilities, "Agent.Version", Constants.Agent.Version);
+            Add(capabilities, "Agent.Version", BuildConstants.AgentPackage.Version);
             Add(capabilities, "Agent.ComputerName", Environment.MachineName ?? string.Empty);
             Add(capabilities, "Agent.HomeDirectory", HostContext.GetDirectory(WellKnownDirectory.Root));
             return Task.FromResult(capabilities);

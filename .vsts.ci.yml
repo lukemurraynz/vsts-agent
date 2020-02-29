@@ -1,66 +1,55 @@
-phases:
+pr:
+  branches:
+    include:
+    - '*'
+  paths:
+    exclude:
+    - 'docs/*'
+
+resources:
+  containers:
+  - container: dotnetcore_arm
+    image: huangtingluo/azure-pipelines-agent-eng:arm
+
+  - container: dotnetcore_centos6
+    image: huangtingluo/azure-pipelines-agent-eng:centos6
+
+jobs:
 
 ################################################################################
-- phase: build_windows_agent
+- job: build_windows_x64_agent
 ################################################################################
-  displayName: Windows Agent
-  queue:
-    name: Hosted VS2017
-    demands: agent.os -equals Windows_NT
-  condition: eq(false, variables.skip_windows)
+  displayName: Windows Agent (x64)
+  pool:
+    vmImage: vs2017-win2016
   steps:
 
-  # Clean
-  - checkout: self
-    clean: true
-  
-  # Build agent layout
-  - script: dev.cmd layout Release
-    workingDirectory: src
-    displayName: Build & Layout Release
-  
-  # Run test
-  - script: dev.cmd test
-    workingDirectory: src
-    displayName: Test
-  
-  # Package dotnet core windows dependency (VC++ Redistributable)
-  - powershell: |
-      Write-Host "Downloading 'VC++ Redistributable' package."
-      $outDir = Join-Path -Path $env:TMP -ChildPath ([Guid]::NewGuid())
-      New-Item -Path $outDir -ItemType directory 
-      $outFile = Join-Path -Path $outDir -ChildPath "ucrt.zip"
-      Invoke-WebRequest -Uri https://vstsagenttools.blob.core.windows.net/tools/ucrt/ucrt.zip -OutFile $outFile
-      Write-Host "Unzipping 'VC++ Redistributable' package to agent layout."
-      $unzipDir = Join-Path -Path $outDir -ChildPath "unzip"
-      Add-Type -AssemblyName System.IO.Compression.FileSystem
-      [System.IO.Compression.ZipFile]::ExtractToDirectory($outFile, $unzipDir)
-      $agentLayoutBin = Join-Path -Path $(Build.SourcesDirectory) -ChildPath "_layout\bin"
-      Copy-Item -Path $unzipDir -Destination $agentLayoutBin -Force
-    displayName: Package UCRT
-    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+  # Steps template for windows platform
+  - template: .vsts.template.windows.yml
+    parameters:
+      componentDetection: 'true'
+      testLogTitle: 'Windows-x64'
 
-  # Signing steps
-  - task: CodeSign@1
-    inputs:
-      ConnectedServiceName: VSTSAgentCodeSignCloudConnector
-      RootFolder: _layout\bin
-      SearchPattern: AgentService.exe
-      CertificateId: 67
-      ProductName: Visual Studio Team Services Build and Release Agent
-    displayName: Sign Agent Assemblies (Strong Name Signing)
-    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+  - script: dotnet tool install --global dotnet-reportgenerator-globaltool
+    displayName: Install Report Generator
 
-  - task: CodeSign@1
+  - script: dev.cmd report
+    displayName: Generate Code Coverage report
+    workingDirectory: src
+
+  - task: PublishCodeCoverageResults@1
     inputs:
-      ConnectedServiceName: VSTSAgentCodeSignCloudConnector
-      RootFolder: _layout\bin
-      SearchPattern: Agent.*.dll,Agent.*.exe,Microsoft.VisualStudio.Services.Agent.dll,AgentService.exe
-      CertificateId: 401
-      ProductName: Visual Studio Team Services Build and Release Agent
-    displayName: Sign Agent Assemblies (Authenticode Signing)
-    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
-  
+      codeCoverageTool: 'cobertura'
+      summaryFileLocation: _reports/**/Cobertura.xml
+      pathToSources: src
+
+  # Package .NET Core Windows dependency (VC++ Redistributable)
+  - template: .azure-pipelines/package-vcredist.yml
+    parameters:
+      layoutRoot: '_layout/win-x64'
+      flavor: 'x64'
+      condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+
   # Create agent package zip
   - script: dev.cmd package Release
     workingDirectory: src
@@ -69,7 +58,7 @@ phases:
 
   # Upload agent package zip as build artifact
   - task: PublishBuildArtifacts@1
-    displayName: Publish Artifact (Windows)
+    displayName: Publish Artifact (Windows x64)
     condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
     inputs:
       pathToPublish: _package
@@ -77,27 +66,55 @@ phases:
       artifactType: container
 
 ################################################################################
-- phase: build_linux_agent
+- job: build_windows_x86_agent
 ################################################################################
-  displayName: Linux Agent
-  queue:
-    name: Hosted Linux Preview
-  condition: eq(false, variables.skip_linux)
+  displayName: Windows Agent (x86)
+  pool:
+    name: buildDevs
+    demands: 'Agent.OSArchitecture -equals X86'
   steps:
 
-  # Clean
-  - checkout: self
-    clean: true
+  # Steps template for windows platform
+  - template: .vsts.template.windows.yml
+    parameters:
+      testLogTitle: 'Windows-x86'
 
-  # Build agent layout
-  - script: ./dev.sh layout Release
-    workingDirectory: src
-    displayName: Build & Layout Release
+  # Package .NET Core Windows dependency (VC++ Redistributable)
+  - template: .azure-pipelines/package-vcredist.yml
+    parameters:
+      layoutRoot: '_layout/win-x86'
+      flavor: 'x86'
+      condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
 
-  # Run test
-  - script: ./dev.sh test
+  # Create agent package zip
+  - script: dev.cmd package Release
     workingDirectory: src
-    displayName: Test
+    displayName: Package Release
+    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+
+  # Upload agent package zip as build artifact
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Artifact (Windows x86)
+    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+    inputs:
+      pathToPublish: _package
+      artifactName: agent
+      artifactType: container
+
+################################################################################
+- job: build_linux_x64_agent
+################################################################################
+  displayName: Linux Agent (x64)
+  pool:
+    vmImage: ubuntu-16.04
+  steps:
+
+  # Steps template for non-windows platform
+  - template: .vsts.template.nonwindows.yml
+    parameters:
+      componentDetection: 'true'
+      testLogTitle: 'Linux-x64'
+      enableADOLogIssue: 'true'
 
   # Create agent package zip
   - script: ./dev.sh package Release
@@ -107,7 +124,7 @@ phases:
 
   # Upload agent package zip as build artifact
   - task: PublishBuildArtifacts@1
-    displayName: Publish Artifact (Linux)
+    displayName: Publish Artifact (Linux x64)
     condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
     inputs:
       pathToPublish: _package
@@ -115,29 +132,79 @@ phases:
       artifactType: container
 
 ################################################################################
-- phase: build_osx_agent
+- job: build_linux_arm_agent
 ################################################################################
-  displayName: OSX Agent
-  queue:
-    name: Hosted macOS Preview
-    demands: agent.os -equals darwin
-  condition: eq(false, variables.skip_macos)
+  displayName: Linux Agent (ARM)
+  pool:
+    name: buildDevs
+    demands: 'Agent.OSArchitecture -equals ARM'
+  container: dotnetcore_arm
+  timeoutInMinutes: 75
   steps:
 
-  # Clean
-  - checkout: self
-    clean: true
+  # Steps template for non-windows platform
+  - template: .vsts.template.nonwindows.yml
+    parameters:
+      testLogTitle: 'Linux-ARM'
 
-  # Build agent layout
-  - script: ./dev.sh layout Release
+  # Create agent package zip
+  - script: ./dev.sh package Release
     workingDirectory: src
-    displayName: Build & Layout Release
+    displayName: Package Release
+    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
 
-  # Run test
-  - script: ./dev.sh test
+  # Upload agent package zip as build artifact
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Artifact (Linux ARM)
+    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+    inputs:
+      pathToPublish: _package
+      artifactName: agent
+      artifactType: container
+
+################################################################################
+- job: build_rhel6_x64_agent
+################################################################################
+  displayName: RHEL6 Agent (x64)
+  pool:
+    vmImage: ubuntu-16.04
+  container: dotnetcore_centos6
+  steps:
+
+  # Steps template for non-windows platform
+  - template: .vsts.template.nonwindows.yml
+    parameters:
+      testLogTitle: 'RHEL-x64'
+
+  # Create agent package zip
+  - script: ./dev.sh package Release
     workingDirectory: src
-    displayName: Test    
-  
+    displayName: Package Release
+    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+
+  # Upload agent package zip as build artifact
+  - task: PublishBuildArtifacts@1
+    displayName: Publish Artifact (RHEL6 x64)
+    condition: and(succeeded(), ne(variables['build.reason'], 'PullRequest'))
+    inputs:
+      pathToPublish: _package
+      artifactName: agent
+      artifactType: container
+
+################################################################################
+- job: build_osx_agent
+################################################################################
+  displayName: macOS Agent (x64)
+  pool:
+    vmImage: macOS-10.13
+  steps:
+
+  # Steps template for non-windows platform
+  - template: .vsts.template.nonwindows.yml
+    parameters:
+      componentDetection: 'true'
+      testLogTitle: 'macOS-x64'
+
   # Create agent package zip
   - script: ./dev.sh package Release
     workingDirectory: src
@@ -152,77 +219,3 @@ phases:
       pathToPublish: _package
       artifactName: agent
       artifactType: container
-
-################################################################################
-- phase: publish_agent_packages
-################################################################################
-  displayName: Publish Agents (Windows/Linux/OSX)
-  queue:
-    name: ProductionRMAgents
-  dependsOn: 
-  - build_windows_agent
-  - build_osx_agent
-  - build_linux_agent
-  condition: and(succeeded(), eq(true, variables.publish))
-  steps:
-  
-  # Clean
-  - checkout: self
-    clean: true
-  
-  # Download all agent packages from all previous phases
-  - task: DownloadBuildArtifacts@0
-    displayName: Download Agent Packages
-    inputs:
-      artifactName: agent
-
-  # Upload agent packages to Azure blob storage and refresh Azure CDN
-  - powershell: |
-      Write-Host "Preloading Azure modules." # This is for better performance, to avoid module-autoloading.
-      Import-Module AzureRM, AzureRM.profile, AzureRM.Storage, Azure.Storage, AzureRM.Cdn -ErrorAction Ignore -PassThru
-      $uploadFiles = New-Object System.Collections.ArrayList
-      $certificateThumbprint = (Get-ItemProperty -Path "$(ServicePrincipalReg)").ServicePrincipalCertThumbprint
-      $clientId = (Get-ItemProperty -Path "$(ServicePrincipalReg)").ServicePrincipalClientId
-      Write-Host "##vso[task.setsecret]$certificateThumbprint"
-      Write-Host "##vso[task.setsecret]$clientId"
-      Login-AzureRmAccount -ServicePrincipal -CertificateThumbprint $certificateThumbprint -ApplicationId $clientId -TenantId $(TenantId)
-      Select-AzureRmSubscription -SubscriptionId $(SubscriptionId)
-      $storage = Get-AzureRmStorageAccount -ResourceGroupName vstsagentpackage -AccountName vstsagentpackage
-      Get-ChildItem -LiteralPath "$(System.ArtifactsDirectory)/agent" | ForEach-Object {
-        $versionDir = $_.Name.Trim('.zip').Trim('.tar.gz')
-        $versionDir = $versionDir.SubString($versionDir.LastIndexOf('-') + 1)
-        Write-Host "##vso[task.setvariable variable=ReleaseAgentVersion;]$versionDir"
-        Write-Host "Uploading $_ to BlobStorage vstsagentpackage/agent/$versionDir"
-        Set-AzureStorageBlobContent -Context $storage.Context -Container agent -File "$(System.ArtifactsDirectory)/agent/$_" -Blob "$versionDir/$_" -Force
-        $uploadFiles.Add("/agent/$versionDir/$_")
-      }
-      Write-Host "Purge Azure CDN Cache"
-      Unpublish-AzureRmCdnEndpointContent -EndpointName vstsagentpackage -ProfileName vstsagentpackage -ResourceGroupName vstsagentpackage -PurgeContent $uploadFiles
-      Write-Host "Force Refresh Azure CDN Cache"
-      Publish-AzureRmCdnEndpointContent -EndpointName vstsagentpackage -ProfileName vstsagentpackage -ResourceGroupName vstsagentpackage -LoadContent $uploadFiles
-    displayName: Upload to Azure Blob
-
-  # Create agent release on Github
-  - powershell: |
-      Write-Host "Creating github release."
-      $releaseNotes = [System.IO.File]::ReadAllText("$(Build.SourcesDirectory)\releaseNote.md").Replace("<AGENT_VERSION>","$(ReleaseAgentVersion)")
-      $releaseData = @{
-        tag_name = "v$(ReleaseAgentVersion)";
-        target_commitish = "$(Build.SourceVersion)";
-        name = "v$(ReleaseAgentVersion)";
-        body = $releaseNotes;
-        draft = $false;
-        prerelease = $true;
-      }
-      $releaseParams = @{
-        Uri = "https://api.github.com/repos/Microsoft/vsts-agent/releases";
-        Method = 'POST';
-        Headers = @{
-          Authorization = 'Basic ' + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("vsts:$(GithubToken)"));
-        }
-        ContentType = 'application/json';
-        Body = (ConvertTo-Json $releaseData -Compress)
-      }
-      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-      Invoke-RestMethod @releaseParams
-    displayName: Create agent release on Github

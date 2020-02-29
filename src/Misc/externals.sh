@@ -1,18 +1,24 @@
 #!/bin/bash
-PLATFORM=$1
+PACKAGERUNTIME=$1
 PRECACHE=$2
+LAYOUT_DIR=$3
+L1_MODE=$4
 
 CONTAINER_URL=https://vstsagenttools.blob.core.windows.net/tools
 NODE_URL=https://nodejs.org/dist
-NODE_VERSION="6.10.3"
+NODE_VERSION="6.17.1"
+NODE10_VERSION="10.17.0"
+MINGIT_VERSION="2.25.0"
 
 get_abs_path() {
   # exploits the fact that pwd will print abs path when no args
   echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 }
 
-LAYOUT_DIR=$(get_abs_path `dirname $0`/../../_layout)
-DOWNLOAD_DIR="$(get_abs_path `dirname $0`/../../_downloads)/netcore2x"
+DOWNLOAD_DIR="$(get_abs_path "$(dirname $0)/../../_downloads")/$PACKAGERUNTIME/netcore2x"
+if [[ "$LAYOUT_DIR" == "" ]]; then
+    LAYOUT_DIR=$(get_abs_path "$(dirname $0)/../../_layout/$PACKAGERUNTIME")
+fi
 
 function failed() {
    local error=${1:-Undefined error}
@@ -40,8 +46,8 @@ function acquireExternalTool() {
 
     # Check if the download already exists.
     local download_target="$DOWNLOAD_DIR/$relative_url"
-    local download_basename="$(basename $download_target)"
-    local download_dir="$(dirname $download_target)"
+    local download_basename="$(basename "$download_target")"
+    local download_dir="$(dirname "$download_target")"
 
     if [[ "$PRECACHE" != "" ]]; then
         if [ -f "$download_target" ]; then
@@ -56,13 +62,13 @@ function acquireExternalTool() {
 
             # Download from source to the partial file.
             echo "Downloading $download_source"
-            mkdir -p "$(dirname $download_target)" || checkRC 'mkdir'
+            mkdir -p "$(dirname "$download_target")" || checkRC 'mkdir'
             # curl -f Fail silently (no output at all) on HTTP errors (H)
             #      -k Allow connections to SSL sites without certs (H)
             #      -S Show error. With -s, make curl show errors when they occur
             #      -L Follow redirects (H)
             #      -o FILE    Write to FILE instead of stdout
-            curl -fkSL -o "$partial_target" "$download_source" 2>"${download_target}_download.log" || checkRC 'curl'
+            curl --retry 10 -fkSL -o "$partial_target" "$download_source" 2>"${download_target}_download.log" || checkRC 'curl'
 
             # Move the partial file to the download target.
             mv "$partial_target" "$download_target" || checkRC 'mv'
@@ -88,9 +94,9 @@ function acquireExternalTool() {
         # Extract to layout.
         mkdir -p "$target_dir" || checkRC 'mkdir'
         local nested_dir=""
-        if [[ "$download_basename" == *.zip ]]; then
+        if [[ "$download_basename" == *.zip  ]]; then
             # Extract the zip.
-            echo "Extracting zip to layout"
+            echo "Extracting zip from $download_target to $target_dir"
             unzip "$download_target" -d "$target_dir" > /dev/null
             local rc=$?
             if [[ $rc -ne 0 && $rc -ne 1 ]]; then
@@ -103,7 +109,7 @@ function acquireExternalTool() {
             fi
         elif [[ "$download_basename" == *.tar.gz ]]; then
             # Extract the tar gz.
-            echo "Extracting tar gz to layout"
+            echo "Extracting tar gz from $download_target to $target_dir"
             tar xzf "$download_target" -C "$target_dir" > /dev/null || checkRC 'tar'
 
             # Capture the nested directory path if the fix_nested_dir flag is set.
@@ -112,7 +118,7 @@ function acquireExternalTool() {
             fi
         else
             # Copy the file.
-            echo "Copying to layout"
+            echo "Copying from $download_target to $target_dir"
             cp "$download_target" "$target_dir/" || checkRC 'cp'
         fi
 
@@ -127,31 +133,59 @@ function acquireExternalTool() {
 }
 
 # Download the external tools only for Windows.
-if [[ "$PLATFORM" == "windows" ]]; then
+if [[ "$PACKAGERUNTIME" == "win-x64" ]]; then
     acquireExternalTool "$CONTAINER_URL/azcopy/1/azcopy.zip" azcopy
     acquireExternalTool "$CONTAINER_URL/pdbstr/1/pdbstr.zip" pdbstr
-    acquireExternalTool "$CONTAINER_URL/mingit/2.14.3/MinGit-2.14.3-64-bit.zip" git
+    acquireExternalTool "$CONTAINER_URL/mingit/${MINGIT_VERSION}/MinGit-${MINGIT_VERSION}-64-bit.zip" git
     acquireExternalTool "$CONTAINER_URL/symstore/1/symstore.zip" symstore
     acquireExternalTool "$CONTAINER_URL/vstshost/m122_887c6659/vstshost.zip" vstshost
     acquireExternalTool "$CONTAINER_URL/vstsom/m122_887c6659/vstsom.zip" vstsom
+    acquireExternalTool "$CONTAINER_URL/vstsom/m153_d91bed0b/vstsom.zip" tf
     acquireExternalTool "$CONTAINER_URL/vswhere/1_0_62/vswhere.zip" vswhere
     acquireExternalTool "$NODE_URL/v${NODE_VERSION}/win-x64/node.exe" node/bin
     acquireExternalTool "$NODE_URL/v${NODE_VERSION}/win-x64/node.lib" node/bin
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/win-x64/node.exe" node10/bin
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/win-x64/node.lib" node10/bin
+    acquireExternalTool "https://dist.nuget.org/win-x86-commandline/v3.3.0/nuget.exe" nuget
+fi
+
+if [[ "$PACKAGERUNTIME" == "win-x86" ]]; then
+    acquireExternalTool "$CONTAINER_URL/pdbstr/1/pdbstr.zip" pdbstr
+    acquireExternalTool "$CONTAINER_URL/mingit/${MINGIT_VERSION}/MinGit-${MINGIT_VERSION}-32-bit.zip" git
+    acquireExternalTool "$CONTAINER_URL/symstore/1/symstore.zip" symstore
+    acquireExternalTool "$CONTAINER_URL/vstsom/m153_d91bed0b/vstsom.zip" tf
+    acquireExternalTool "$CONTAINER_URL/vswhere/1_0_62/vswhere.zip" vswhere
+    acquireExternalTool "$NODE_URL/v${NODE_VERSION}/win-x86/node.exe" node/bin
+    acquireExternalTool "$NODE_URL/v${NODE_VERSION}/win-x86/node.lib" node/bin
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/win-x86/node.exe" node10/bin
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/win-x86/node.lib" node10/bin
     acquireExternalTool "https://dist.nuget.org/win-x86-commandline/v3.3.0/nuget.exe" nuget
 fi
 
 # Download the external tools only for OSX.
-if [[ "$PLATFORM" == "darwin" ]]; then
+if [[ "$PACKAGERUNTIME" == "osx-x64" ]]; then
     acquireExternalTool "$NODE_URL/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-x64.tar.gz" node fix_nested_dir
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/node-v${NODE10_VERSION}-darwin-x64.tar.gz" node10 fix_nested_dir
 fi
 
-# Download the external tools common across OSX and Linux platforms.
-if [[ "$PLATFORM" == "linux" || "$PLATFORM" == "darwin" ]]; then
-    acquireExternalTool "$CONTAINER_URL/tee/14_0_4_20160606/TEE-CLC-14.0.4.zip" tee fix_nested_dir
+# Download the external tools common across OSX and Linux PACKAGERUNTIMEs.
+if [[ "$PACKAGERUNTIME" == "linux-x64" || "$PACKAGERUNTIME" == "linux-arm" || "$PACKAGERUNTIME" == "osx-x64" || "$PACKAGERUNTIME" == "rhel.6-x64" ]]; then
+    acquireExternalTool "$CONTAINER_URL/tee/14_134_0/TEE-CLC-14.134.0.zip" tee fix_nested_dir
     acquireExternalTool "$CONTAINER_URL/vso-task-lib/0.5.5/vso-task-lib.tar.gz" vso-task-lib
 fi
 
-# Download the external tools common across Linux platforms (excluding OSX).
-if [[ "$PLATFORM" == "linux" ]]; then
+# Download the external tools common across Linux PACKAGERUNTIMEs (excluding OSX).
+if [[ "$PACKAGERUNTIME" == "linux-x64" || "$PACKAGERUNTIME" == "rhel.6-x64" ]]; then
     acquireExternalTool "$NODE_URL/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" node fix_nested_dir
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/node-v${NODE10_VERSION}-linux-x64.tar.gz" node10 fix_nested_dir
+fi
+
+if [[ "$PACKAGERUNTIME" == "linux-arm" ]]; then
+    acquireExternalTool "$NODE_URL/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-armv7l.tar.gz" node fix_nested_dir
+    acquireExternalTool "$NODE_URL/v${NODE10_VERSION}/node-v${NODE10_VERSION}-linux-armv7l.tar.gz" node10 fix_nested_dir
+fi
+
+if [[ "$L1_MODE" != "" || "$PRECACHE" != "" ]]; then
+    # cmdline task
+    acquireExternalTool "$CONTAINER_URL/l1Tasks/d9bafed4-0b18-4f58-968d-86655b4d2ce9.zip" "Tasks/d9bafed4-0b18-4f58-968d-86655b4d2ce9" ""
 fi

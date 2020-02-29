@@ -1,5 +1,10 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+using Microsoft.TeamFoundation.DistributedTask.Pipelines;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace Microsoft.VisualStudio.Services.Agent.Worker.Maintenance
@@ -17,10 +22,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Maintenance
         public override IStep GetExtensionPreJobStep(IExecutionContext jobContext)
         {
             return new JobExtensionRunner(
-                context: jobContext.CreateChild(Guid.NewGuid(), StringUtil.Loc("Maintenance"), nameof(MaintenanceJobExtension)),
                 runAsync: MaintainAsync,
                 condition: ExpressionManager.Succeeded,
-                displayName: StringUtil.Loc("Maintenance"));
+                displayName: StringUtil.Loc("Maintenance"),
+                data: null);
         }
 
         public override IStep GetExtensionPostJobStep(IExecutionContext jobContext)
@@ -39,7 +44,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Maintenance
             repoName = string.Empty;
         }
 
-        private async Task MaintainAsync(IExecutionContext executionContext)
+        private async Task MaintainAsync(IExecutionContext executionContext, object data)
         {
             // Validate args.
             Trace.Entering();
@@ -66,7 +71,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Maintenance
             }
         }
 
-        public override void InitializeJobExtension(IExecutionContext context)
+        public override void InitializeJobExtension(IExecutionContext context, IList<JobStep> steps, WorkspaceOptions workspace)
         {
             return;
         }

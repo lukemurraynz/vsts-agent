@@ -14,20 +14,20 @@ From src:
   
 **Commands:**  
 
-`layout` (`l`):  Run first time to create a full agent layout in {root}/_layout  
+`layout` (`l`):  Run first time to create a full agent layout in {root}/{runtime_id}/_layout  
 
 `build` (`b`):   build everything and update agent layout folder  
 
-`test` (`t`):    build agent binaries and run unit tests  
+`test` (`t`):    build agent binaries, run unit tests applicable to the current platform
 
 Normal dev flow:
 ```bash
-git clone https://github.com/microsoft/vsts-agent
+git clone https://github.com/microsoft/azure-pipelines-agent
 cd ./src
-./dev.(sh/cmd) layout # the agent that build from source is in {root}/_layout
+./dev.(sh/cmd) layout # the agent that build from source is in {root}/{runtime_id}/_layout
 <make code changes>
-./dev.(sh/cmd) build # {root}/_layout will get updated
-./dev.(sh/cmd) test # run all unit tests before git commit/push
+./dev.(sh/cmd) build # {root}/{runtime_id}/_layout will get updated
+./dev.(sh/cmd) test # run unit tests before git commit/push
 ```
 
 ## Editors

@@ -1,3 +1,7 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+using Agent.Sdk;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -53,7 +57,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release.Artifacts
             // Get the list of available artifacts from build. 
             executionContext.Output(StringUtil.Loc("RMPreparingToGetBuildArtifactList"));
 
-            var vssConnection = ApiUtil.CreateConnection(buildArtifactDetails.TfsUrl, buildArtifactDetails.Credentials);
+            var vssConnection = VssUtil.CreateConnection(buildArtifactDetails.TfsUrl, buildArtifactDetails.Credentials);
             var buildClient = vssConnection.GetClient<BuildHttpClient>();
             var xamlBuildClient = vssConnection.GetClient<XamlBuildHttpClient>();
             List<ServerBuildArtifact> buildArtifacts = null;
@@ -96,12 +100,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release.Artifacts
         {
             Trace.Entering();
 
-            ServiceEndpoint vssEndpoint = context.Endpoints.FirstOrDefault(e => string.Equals(e.Name, "SystemVssConnection", StringComparison.OrdinalIgnoreCase));
+            ServiceEndpoint vssEndpoint = context.Endpoints.FirstOrDefault(e => string.Equals(e.Name, WellKnownServiceEndpointNames.SystemVssConnection, StringComparison.OrdinalIgnoreCase));
             ArgUtil.NotNull(vssEndpoint, nameof(vssEndpoint));
             ArgUtil.NotNull(vssEndpoint.Url, nameof(vssEndpoint.Url));
 
             var artifactDetails = JsonConvert.DeserializeObject<Dictionary<string, string>>(agentArtifactDefinition.Details);
-            VssCredentials vssCredentials = ApiUtil.GetVssCredential(vssEndpoint);
+            VssCredentials vssCredentials = VssUtil.GetVssCredential(vssEndpoint);
             var tfsUrl = context.Variables.Get(WellKnownDistributedTaskVariables.TFCollectionUrl);
 
             Guid projectId = context.Variables.System_TeamProjectId ?? Guid.Empty;
@@ -174,9 +178,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release.Artifacts
                 || string.Equals(buildArtifact.Resource.Type, ArtifactResourceTypes.FilePath, StringComparison.OrdinalIgnoreCase))
             {
                 executionContext.Output(StringUtil.Loc("RMArtifactTypeFileShare"));
-#if !OS_WINDOWS
-                throw new NotSupportedException(StringUtil.Loc("RMFileShareArtifactErrorOnNonWindowsAgent"));
-#else
+                if (!PlatformUtil.RunningOnWindows)
+                {
+                    throw new NotSupportedException(StringUtil.Loc("RMFileShareArtifactErrorOnNonWindowsAgent"));
+                }
                 string fileShare;
                 if (buildArtifact.Id == 0)
                 {
@@ -204,7 +209,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release.Artifacts
 
                 var fileShareArtifact = new FileShareArtifact();
                 await fileShareArtifact.DownloadArtifactAsync(executionContext, HostContext, artifactDefinition, fileShare, downloadFolderPath);
-#endif
             }
             else if (buildArtifactDetails != null
                      && string.Equals(buildArtifact.Resource.Type, ArtifactResourceTypes.Container, StringComparison.OrdinalIgnoreCase))

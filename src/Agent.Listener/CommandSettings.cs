@@ -1,27 +1,29 @@
-﻿using Microsoft.VisualStudio.Services.Agent.Listener.Configuration;
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+using Microsoft.VisualStudio.Services.Agent.Listener.Configuration;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Agent.Sdk;
 
 namespace Microsoft.VisualStudio.Services.Agent.Listener
 {
     public sealed class CommandSettings
     {
-        private readonly IHostContext _context;
         private readonly Dictionary<string, string> _envArgs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly CommandLineParser _parser;
         private readonly IPromptManager _promptManager;
-        private ISecretMasker _secretMasker;
         private readonly Tracing _trace;
 
         private readonly string[] validCommands =
         {
             Constants.Agent.CommandLine.Commands.Configure,
-            Constants.Agent.CommandLine.Commands.LocalRun,
             Constants.Agent.CommandLine.Commands.Remove,
             Constants.Agent.CommandLine.Commands.Run,
+            Constants.Agent.CommandLine.Commands.Warmup,
         };
 
         private readonly string[] validFlags =
@@ -32,9 +34,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             Constants.Agent.CommandLine.Flags.Commit,
             Constants.Agent.CommandLine.Flags.DeploymentGroup,
             Constants.Agent.CommandLine.Flags.DeploymentPool,
-#if OS_WINDOWS
+            Constants.Agent.CommandLine.Flags.Diagnostics,
+            Constants.Agent.CommandLine.Flags.Environment,
+            // SChannel is Windows-only
             Constants.Agent.CommandLine.Flags.GitUseSChannel,
-#endif
             Constants.Agent.CommandLine.Flags.Help,
             Constants.Agent.CommandLine.Flags.MachineGroup,
             Constants.Agent.CommandLine.Flags.NoRestart,
@@ -42,10 +45,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             Constants.Agent.CommandLine.Flags.Replace,
             Constants.Agent.CommandLine.Flags.RunAsAutoLogon,
             Constants.Agent.CommandLine.Flags.RunAsService,
+            Constants.Agent.CommandLine.Flags.Once,
             Constants.Agent.CommandLine.Flags.SslSkipCertValidation,
             Constants.Agent.CommandLine.Flags.Unattended,
-            Constants.Agent.CommandLine.Flags.Version,
-            Constants.Agent.CommandLine.Flags.WhatIf
+            Constants.Agent.CommandLine.Flags.Version
         };
 
         private readonly string[] validArgs =
@@ -56,12 +59,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             Constants.Agent.CommandLine.Args.DeploymentGroupName,
             Constants.Agent.CommandLine.Args.DeploymentPoolName,
             Constants.Agent.CommandLine.Args.DeploymentGroupTags,
+            Constants.Agent.CommandLine.Args.EnvironmentName,
+            Constants.Agent.CommandLine.Args.EnvironmentVMResourceTags,
             Constants.Agent.CommandLine.Args.MachineGroupName,
             Constants.Agent.CommandLine.Args.MachineGroupTags,
             Constants.Agent.CommandLine.Args.Matrix,
+            Constants.Agent.CommandLine.Args.MonitorSocketAddress,
             Constants.Agent.CommandLine.Args.NotificationPipeName,
             Constants.Agent.CommandLine.Args.Password,
-            Constants.Agent.CommandLine.Args.Phase,
             Constants.Agent.CommandLine.Args.Pool,
             Constants.Agent.CommandLine.Args.ProjectName,
             Constants.Agent.CommandLine.Args.ProxyPassword,
@@ -78,34 +83,32 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             Constants.Agent.CommandLine.Args.UserName,
             Constants.Agent.CommandLine.Args.WindowsLogonAccount,
             Constants.Agent.CommandLine.Args.WindowsLogonPassword,
-            Constants.Agent.CommandLine.Args.Work,
-            Constants.Agent.CommandLine.Args.Yml
+            Constants.Agent.CommandLine.Args.Work
         };
 
         // Commands.
         public bool Configure => TestCommand(Constants.Agent.CommandLine.Commands.Configure);
-        public bool LocalRun => TestCommand(Constants.Agent.CommandLine.Commands.LocalRun);
         public bool Remove => TestCommand(Constants.Agent.CommandLine.Commands.Remove);
         public bool Run => TestCommand(Constants.Agent.CommandLine.Commands.Run);
+        public bool Warmup => TestCommand(Constants.Agent.CommandLine.Commands.Warmup);
 
         // Flags.
         public bool Commit => TestFlag(Constants.Agent.CommandLine.Flags.Commit);
+        public bool Diagnostics => TestFlag(Constants.Agent.CommandLine.Flags.Diagnostics);
         public bool Help => TestFlag(Constants.Agent.CommandLine.Flags.Help);
         public bool Unattended => TestFlag(Constants.Agent.CommandLine.Flags.Unattended);
         public bool Version => TestFlag(Constants.Agent.CommandLine.Flags.Version);
         public bool DeploymentGroup => TestFlag(Constants.Agent.CommandLine.Flags.MachineGroup) || TestFlag(Constants.Agent.CommandLine.Flags.DeploymentGroup);
         public bool DeploymentPool => TestFlag(Constants.Agent.CommandLine.Flags.DeploymentPool);
-        public bool WhatIf => TestFlag(Constants.Agent.CommandLine.Flags.WhatIf);
-#if OS_WINDOWS
+        public bool EnvironmentVMResource => TestFlag(Constants.Agent.CommandLine.Flags.Environment);
         public bool GitUseSChannel => TestFlag(Constants.Agent.CommandLine.Flags.GitUseSChannel);
-#endif
+        public bool RunOnce => TestFlag(Constants.Agent.CommandLine.Flags.Once);
+
         // Constructor.
-        public CommandSettings(IHostContext context, string[] args)
+        public CommandSettings(IHostContext context, string[] args, IScopedEnvironment environmentScope=null)
         {
             ArgUtil.NotNull(context, nameof(context));
-            _context = context;
             _promptManager = context.GetService<IPromptManager>();
-            _secretMasker = context.GetService<ISecretMasker>();
             _trace = context.GetTrace(nameof(CommandSettings));
 
             // Parse the command line args.
@@ -114,8 +117,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
                 secretArgNames: Constants.Agent.CommandLine.Args.Secrets);
             _parser.Parse(args);
 
+            if (environmentScope == null)
+            {
+                environmentScope = new SystemEnvironment();
+            }
+
             // Store and remove any args passed via environment variables.
-            IDictionary environment = Environment.GetEnvironmentVariables();
+            var environment = environmentScope.GetEnvironmentVariables();
+            
             string envPrefix = "VSTS_AGENT_INPUT_";
             foreach (DictionaryEntry entry in environment)
             {
@@ -133,7 +142,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
                         bool secret = Constants.Agent.CommandLine.Args.Secrets.Any(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase));
                         if (secret)
                         {
-                            _secretMasker.AddValue(val);
+                            context.SecretMasker.AddValue(val);
                         }
 
                         // Store the value.
@@ -142,7 +151,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
 
                     // Remove from the environment block.
                     _trace.Info($"Removing env var: '{fullKey}'");
-                    Environment.SetEnvironmentVariable(fullKey, null);
+                    environmentScope.SetEnvironmentVariable(fullKey, null);
                 }
             }
         }
@@ -224,6 +233,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
                            defaultValue: false);
         }
 
+        public bool GetAutoLaunchBrowser()
+        {
+            return TestFlagOrPrompt(
+                name: Constants.Agent.CommandLine.Flags.LaunchBrowser,
+                description: StringUtil.Loc("LaunchBrowser"),
+                defaultValue: true);
+        }
         //
         // Args.
         //
@@ -245,11 +261,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
                 validator: Validators.AuthSchemeValidator);
         }
 
-        public string GetMatrix()
-        {
-            return GetArg(Constants.Agent.CommandLine.Args.Matrix);
-        }
-
         public string GetPassword()
         {
             return GetArgOrPrompt(
@@ -257,11 +268,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
                 description: StringUtil.Loc("Password"),
                 defaultValue: string.Empty,
                 validator: Validators.NonEmptyValidator);
-        }
-
-        public string GetPhase()
-        {
-            return GetArg(Constants.Agent.CommandLine.Args.Phase);
         }
 
         public string GetPool()
@@ -353,6 +359,45 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             return result;
         }
 
+        // Environments
+
+        public string GetEnvironmentName()
+        {
+            var result = GetArg(Constants.Agent.CommandLine.Args.EnvironmentName);
+            if (string.IsNullOrEmpty(result))
+            {
+                return GetArgOrPrompt(
+                    name: Constants.Agent.CommandLine.Args.EnvironmentName,
+                    description: StringUtil.Loc("EnvironmentName"),
+                    defaultValue: string.Empty,
+                    validator: Validators.NonEmptyValidator);
+            }
+            return result;
+        }
+
+        public bool GetEnvironmentVirtualMachineResourceTagsRequired()
+        {
+            return TestFlag(Constants.Agent.CommandLine.Flags.AddEnvironmentVirtualMachineResourceTags)
+                   || TestFlagOrPrompt(
+                           name: Constants.Agent.CommandLine.Flags.AddEnvironmentVirtualMachineResourceTags,
+                           description: StringUtil.Loc("AddEnvironmentVMResourceTags"),
+                           defaultValue: false);
+        }
+
+        public string GetEnvironmentVirtualMachineResourceTags()
+        {
+            var result = GetArg(Constants.Agent.CommandLine.Args.EnvironmentVMResourceTags);
+            if (string.IsNullOrEmpty(result))
+            {
+                return GetArgOrPrompt(
+                    name: Constants.Agent.CommandLine.Args.EnvironmentVMResourceTags,
+                    description: StringUtil.Loc("EnvironmentVMResourceTags"),
+                    defaultValue: string.Empty,
+                    validator: Validators.NonEmptyValidator);
+            }
+            return result;
+        }
+
         public string GetUserName()
         {
             return GetArgOrPrompt(
@@ -389,6 +434,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
                 validator: Validators.NonEmptyValidator);
         }
 
+        public string GetMonitorSocketAddress()
+        {
+            return GetArg(Constants.Agent.CommandLine.Args.MonitorSocketAddress);
+        }
+
         public string GetNotificationPipeName()
         {
             return GetArg(Constants.Agent.CommandLine.Args.NotificationPipeName);
@@ -403,11 +453,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
         public string GetStartupType()
         {
             return GetArg(Constants.Agent.CommandLine.Args.StartupType);
-        }
-
-        public string GetYml()
-        {
-            return GetArg(Constants.Agent.CommandLine.Args.Yml);
         }
 
         public string GetProxyUrl()
@@ -455,11 +500,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             return GetArg(Constants.Agent.CommandLine.Args.SslClientCertPassword);
         }
 
-        public void SetUnattended()
-        {
-            _parser.Flags.Add(Constants.Agent.CommandLine.Flags.Unattended);
-        }
-
         //
         // Private helpers.
         //
@@ -502,7 +542,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Listener
             if (!string.IsNullOrEmpty(result))
             {
                 // After read the arg from input commandline args, remove it from Arg dictionary,
-                // This will help if bad arg value passed through CommandLine arg, when ConfigurationManager ask CommandSetting the second time, 
+                // This will help if bad arg value passed through CommandLine arg, when ConfigurationManager ask CommandSetting the second time,
                 // It will prompt for input instead of continue use the bad input.
                 _trace.Info($"Remove {name} from Arg dictionary.");
                 RemoveArg(name);

@@ -1,4 +1,7 @@
-﻿using Microsoft.TeamFoundation.DistributedTask.WebApi;
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using System;
 using System.Collections.Generic;
@@ -8,81 +11,41 @@ using System.Linq;
 
 namespace Microsoft.VisualStudio.Services.Agent.Worker
 {
-    public sealed class TaskCommandExtension : AgentService, IWorkerCommandExtension
+    public sealed class TaskCommandExtension: BaseWorkerCommandExtension
     {
+        public TaskCommandExtension()
+        {
+            CommandArea = "task";
+            SupportedHostTypes = HostTypes.All;
+            InstallWorkerCommand(new TaskIssueCommand());
+            InstallWorkerCommand(new TaskProgressCommand());
+            InstallWorkerCommand(new TaskDetailCommand());
+            InstallWorkerCommand(new TaskCompleteCommand());
+            InstallWorkerCommand(new TaskSetSecretCommand());
+            InstallWorkerCommand(new TaskSetVariableCommand());
+            InstallWorkerCommand(new TaskAddAttachmentCommand());
+            InstallWorkerCommand(new TaskDebugCommand());
+            InstallWorkerCommand(new TaskUploadSummaryCommand());
+            InstallWorkerCommand(new TaskUploadFileCommand());
+            InstallWorkerCommand(new TaskSetTaskVariableCommand());
+            InstallWorkerCommand(new TaskSetEndpointCommand());
+            InstallWorkerCommand(new TaskPrepandPathCommand());
+        }
+    }
+
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskDetailCommand: IWorkerCommand
+    {
+        public string Name => "logdetail";
+        public List<string> Aliases => null;
+
         // Since we process all logging command in serialized order, everthing should be thread safe.
         private readonly Dictionary<Guid, TimelineRecord> _timelineRecordsTracker = new Dictionary<Guid, TimelineRecord>();
-
-        public Type ExtensionType => typeof(IWorkerCommandExtension);
-
-        public string CommandArea => "task";
-
-        public HostTypes SupportedHostTypes => HostTypes.All;
-
-        public void ProcessCommand(IExecutionContext context, Command command)
+        public void Execute(IExecutionContext context, Command command)
         {
-            // TODO: update tasklib alway product ##vso[task.logissue]
-            if (String.Equals(command.Event, WellKnownTaskCommand.LogIssue, StringComparison.OrdinalIgnoreCase) ||
-                String.Equals(command.Event, WellKnownTaskCommand.LogIssue_xplatCompat, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskIssueCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.SetProgress, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskProgressCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.LogDetail, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskDetailCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.Complete, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskCompleteCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.SetSecret, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskSetSecretCommand(context, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.SetVariable, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskSetVariableCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.AddAttachment, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskAddAttachmentCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.Debug, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskDebugCommand(context, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.UploadSummary, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskUploadSummaryCommand(context, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.UploadFile, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskUploadFileCommand(context, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.SetTaskVariable, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskSetTaskVariableCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.SetEndpoint, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskSetEndpointCommand(context, command.Properties, command.Data);
-            }
-            else if (String.Equals(command.Event, WellKnownTaskCommand.PrependPath, StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskPrepandPathCommand(context, command.Data);
-            }
-            else
-            {
-                throw new Exception(StringUtil.Loc("TaskCommandNotFound", command.Event));
-            }
-        }
+            var eventProperties = command.Properties;
+            var data = command.Data;
 
-        private void ProcessTaskDetailCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
-        {
             TimelineRecord record = new TimelineRecord();
 
             String timelineRecord;
@@ -236,8 +199,37 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             _timelineRecordsTracker[record.Id] = record;
         }
 
-        private void ProcessTaskUploadSummaryCommand(IExecutionContext context, string data)
+        private DateTime ParseDateTime(String dateTimeText, DateTime defaultValue)
         {
+            DateTime dateTime;
+            if (!DateTime.TryParse(dateTimeText, CultureInfo.CurrentCulture, DateTimeStyles.AdjustToUniversal, out dateTime))
+            {
+                dateTime = defaultValue;
+            }
+
+            return dateTime;
+        }
+
+        private TimelineRecordState ParseTimelineRecordState(String timelineRecordStateText, TimelineRecordState defaultValue)
+        {
+            TimelineRecordState state;
+            if (!Enum.TryParse<TimelineRecordState>(timelineRecordStateText, out state))
+            {
+                state = defaultValue;
+            }
+
+            return state;
+        }
+    }
+
+    public sealed class TaskUploadSummaryCommand: IWorkerCommand
+    {
+        public string Name => "uploadsummary";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
+        {
+            var data = command.Data;
             if (!string.IsNullOrEmpty(data))
             {
                 var uploadSummaryProperties = new Dictionary<string, string>();
@@ -245,16 +237,24 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 var fileName = Path.GetFileName(data);
                 uploadSummaryProperties.Add(TaskAddAttachmentEventProperties.Name, fileName);
 
-                ProcessTaskAddAttachmentCommand(context, uploadSummaryProperties, data);
+                TaskAddAttachmentCommand.AddAttachment(context, uploadSummaryProperties, data);
             }
             else
             {
                 throw new Exception(StringUtil.Loc("CannotUploadSummary"));
             }
         }
+    }
 
-        private void ProcessTaskUploadFileCommand(IExecutionContext context, string data)
+    public sealed class TaskUploadFileCommand: IWorkerCommand
+    {
+        public string Name => "uploadfile";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var data = command.Data;
+
             if (!string.IsNullOrEmpty(data))
             {
                 var uploadFileProperties = new Dictionary<string, string>();
@@ -262,15 +262,26 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 var fileName = Path.GetFileName(data);
                 uploadFileProperties.Add(TaskAddAttachmentEventProperties.Name, fileName);
 
-                ProcessTaskAddAttachmentCommand(context, uploadFileProperties, data);
+                TaskAddAttachmentCommand.AddAttachment(context, uploadFileProperties, data);
             }
             else
             {
                 throw new Exception(StringUtil.Loc("CannotUploadFile"));
             }
         }
+    }
 
-        private void ProcessTaskAddAttachmentCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
+    public sealed class TaskAddAttachmentCommand: IWorkerCommand
+    {
+        public string Name => "addattachment";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
+        {
+            AddAttachment(context, command.Properties, command.Data);
+        }
+
+        public static void AddAttachment(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
         {
             String type;
             if (!eventProperties.TryGetValue(TaskAddAttachmentEventProperties.Type, out type) || String.IsNullOrEmpty(type))
@@ -295,7 +306,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 throw new Exception($"Name contain invalid characters. ({String.Join(", ", s_invalidFileChars)})");
             }
 
-            string filePath = data;
+            // Translate file path back from container path
+            string filePath = context.TranslateToHostPath(data);
+
             if (!String.IsNullOrEmpty(filePath) && File.Exists(filePath))
             {
                 // Upload attachment
@@ -306,9 +319,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 throw new Exception(StringUtil.Loc("MissingAttachmentFile"));
             }
         }
+    }
 
-        private void ProcessTaskIssueCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskIssueCommand: IWorkerCommand
+    {
+        public string Name => "logissue";
+        public List<string> Aliases => new List<string>(){"issue"};
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var eventProperties = command.Properties;
+            var data = command.Data;
+
             Issue taskIssue = null;
 
             String issueType;
@@ -351,7 +374,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             {
                 issue.Category = "Code";
 
-                var extensionManager = HostContext.GetService<IExtensionManager>();
+                var extensionManager = context.GetHostContext().GetService<IExtensionManager>();
                 var hostType = context.Variables.System_HostType;
                 IJobExtension extension =
                     (extensionManager.GetExtensions<IJobExtension>() ?? new List<IJobExtension>())
@@ -360,6 +383,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
                 if (extension != null)
                 {
+                    // Translate file path back from container path
+                    sourcePath = context.TranslateToHostPath(sourcePath);
+                    properties[ProjectIssueProperties.SourcePath] = sourcePath;
+
                     // Get the values that represent the server path given a local path
                     string repoName;
                     string relativeSourcePath;
@@ -411,9 +438,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             return issue;
         }
+    }
 
-        private void ProcessTaskCompleteCommand(IExecutionContext context, Dictionary<string, string> eventProperties, String data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskCompleteCommand: IWorkerCommand
+    {
+        public string Name => "complete";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var eventProperties = command.Properties;
+            var data = command.Data;
+
             string resultText;
             TaskResult result;
             if (!eventProperties.TryGetValue(TaskCompleteEventProperties.Result, out resultText) ||
@@ -425,10 +462,27 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             context.Result = TaskResultUtil.MergeTaskResults(context.Result, result);
             context.Progress(100, data);
-        }
 
-        private void ProcessTaskProgressCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
+            if (eventProperties.TryGetValue(TaskCompleteEventProperties.Done, out string doneText) &&
+                !String.IsNullOrEmpty(doneText) &&
+                StringUtil.ConvertToBoolean(doneText))
+            {
+                context.ForceTaskComplete();
+            }
+        }
+    }
+
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskProgressCommand: IWorkerCommand
+    {
+        public string Name => "setprogress";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var eventProperties = command.Properties;
+            var data = command.Data;
+
             Int32 percentComplete = 0;
             String processValue;
             if (eventProperties.TryGetValue("value", out processValue))
@@ -442,18 +496,35 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             context.Progress(percentComplete, data);
         }
+    }
 
-        private void ProcessTaskSetSecretCommand(IExecutionContext context, string data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskSetSecretCommand: IWorkerCommand
+    {
+        public string Name => "setsecret";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var data = command.Data;
             if (!string.IsNullOrEmpty(data))
             {
-                var _secretMasker = HostContext.GetService<ISecretMasker>();
-                _secretMasker.AddRegex(data);
+                context.GetHostContext().SecretMasker.AddValue(data);
             }
         }
+    }
 
-        private void ProcessTaskSetVariableCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskSetVariableCommand: IWorkerCommand
+    {
+        public string Name => "setvariable";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var eventProperties = command.Properties;
+            var data = command.Data;
+
             String name;
             if (!eventProperties.TryGetValue(TaskSetVariableEventProperties.Variable, out name) || String.IsNullOrEmpty(name))
             {
@@ -474,29 +545,71 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 Boolean.TryParse(isOutputValue, out isOutput);
             }
 
-            bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
-            if (allowMultilineSecret == null)
+            String isReadOnlyValue;
+            Boolean isReadOnly = false;
+            if (eventProperties.TryGetValue(TaskSetVariableEventProperties.IsReadOnly, out isReadOnlyValue))
             {
-                allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
+                Boolean.TryParse(isReadOnlyValue, out isReadOnly);
             }
 
-            if (!string.IsNullOrEmpty(data) &&
-                data.Contains(Environment.NewLine) &&
-                !allowMultilineSecret.Value)
+            if (context.Variables.IsReadOnly(name))
             {
-                throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
+                // Check FF. If it is on then throw, otherwise warn
+                // TODO - remove this and just always throw once the feature has been fully rolled out.
+                if (context.Variables.Read_Only_Variables)
+                {
+                    throw new Exception(StringUtil.Loc("ReadOnlyVariable", name));
+                }
+                else
+                {
+                    context.Warning(StringUtil.Loc("ReadOnlyVariableWarning", name));
+                }
             }
 
-            context.SetVariable(name, data, isSecret, isOutput);
+            if (isSecret)
+            {
+                bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
+                if (allowMultilineSecret == null)
+                {
+                    allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
+                }
+
+                if (!string.IsNullOrEmpty(data) &&
+                    data.Contains(Environment.NewLine) &&
+                    !allowMultilineSecret.Value)
+                {
+                    throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
+                }
+            }
+
+            context.SetVariable(name, data, isSecret: isSecret, isOutput: isOutput, isReadOnly: isReadOnly);
         }
+    }
 
-        private void ProcessTaskDebugCommand(IExecutionContext context, String data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskDebugCommand: IWorkerCommand
+    {
+        public string Name => "debug";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var data = command.Data;
             context.Debug(data);
         }
+    }
 
-        private void ProcessTaskSetTaskVariableCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskSetTaskVariableCommand: IWorkerCommand
+    {
+        public string Name => "settaskvariable";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var eventProperties = command.Properties;
+            var data = command.Data;
+
             String name;
             if (!eventProperties.TryGetValue(TaskSetTaskVariableEventProperties.Variable, out name) || String.IsNullOrEmpty(name))
             {
@@ -510,24 +623,57 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 Boolean.TryParse(isSecretValue, out isSecret);
             }
 
-            bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
-            if (allowMultilineSecret == null)
+            String isReadOnlyValue;
+            Boolean isReadOnly = false;
+            if (eventProperties.TryGetValue(TaskSetVariableEventProperties.IsReadOnly, out isReadOnlyValue))
             {
-                allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
+                Boolean.TryParse(isReadOnlyValue, out isReadOnly);
             }
 
-            if (!string.IsNullOrEmpty(data) &&
-                data.Contains(Environment.NewLine) &&
-                !allowMultilineSecret.Value)
+            if (context.TaskVariables.IsReadOnly(name))
             {
-                throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
+                // Check FF. If it is on then throw, otherwise warn
+                // TODO - remove this and just always throw once the feature has been fully rolled out.
+                if (context.Variables.Read_Only_Variables)
+                {
+                    throw new Exception(StringUtil.Loc("ReadOnlyTaskVariable", name));
+                }
+                else
+                {
+                    context.Warning(StringUtil.Loc("ReadOnlyTaskVariableWarning", name));
+                }
             }
 
-            context.TaskVariables.Set(name, data, isSecret);
+            if (isSecret)
+            {
+                bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
+                if (allowMultilineSecret == null)
+                {
+                    allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
+                }
+
+                if (!string.IsNullOrEmpty(data) &&
+                    data.Contains(Environment.NewLine) &&
+                    !allowMultilineSecret.Value)
+                {
+                    throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
+                }
+            }
+
+            context.TaskVariables.Set(name, data, secret: isSecret, readOnly: isReadOnly);
         }
+    }
 
-        private void ProcessTaskSetEndpointCommand(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
+    public sealed class TaskSetEndpointCommand: IWorkerCommand
+    {
+        public string Name => "setendpoint";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
+            var eventProperties = command.Properties;
+            var data = command.Data;
+
             if (string.IsNullOrEmpty(data))
             {
                 throw new Exception(StringUtil.Loc("EnterValidValueFor0", "setendpoint"));
@@ -539,16 +685,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 throw new Exception(StringUtil.Loc("MissingEndpointField"));
             }
 
-            // Mask auth parameter data upfront to avoid accidental secret exposure by invalid endpoint/key/data 
+            // Mask auth parameter data upfront to avoid accidental secret exposure by invalid endpoint/key/data
             if (String.Equals(field, "authParameter", StringComparison.OrdinalIgnoreCase))
             {
-                var _secretMasker = HostContext.GetService<ISecretMasker>();
-                _secretMasker.AddValue(data);
-
-                if (!Uri.EscapeDataString(data).Equals(data, StringComparison.OrdinalIgnoreCase))
-                {
-                    _secretMasker.AddValue(Uri.EscapeDataString(data));
-                }
+                context.GetHostContext().SecretMasker.AddValue(data);
             }
 
             String endpointIdInput;
@@ -600,70 +740,37 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 throw new Exception(StringUtil.Loc("InvalidEndpointField"));
             }
         }
+    }
 
-        private void ProcessTaskPrepandPathCommand(IExecutionContext context, string data)
+    [CommandRestriction(AllowedInRestrictedMode=true)]
+    public sealed class TaskPrepandPathCommand: IWorkerCommand
+    {
+        public string Name => "prependpath";
+        public List<string> Aliases => null;
+
+        public void Execute(IExecutionContext context, Command command)
         {
-            ArgUtil.NotNullOrEmpty(data, nameof(WellKnownTaskCommand.PrependPath));
+            var data = command.Data;
+
+            ArgUtil.NotNullOrEmpty(data, this.Name);
             context.PrependPath.RemoveAll(x => string.Equals(x, data, StringComparison.CurrentCulture));
             context.PrependPath.Add(data);
         }
-
-        private DateTime ParseDateTime(String dateTimeText, DateTime defaultValue)
-        {
-            DateTime dateTime;
-            if (!DateTime.TryParse(dateTimeText, CultureInfo.CurrentCulture, DateTimeStyles.AdjustToUniversal, out dateTime))
-            {
-                dateTime = defaultValue;
-            }
-
-            return dateTime;
-        }
-
-        private TimelineRecordState ParseTimelineRecordState(String timelineRecordStateText, TimelineRecordState defaultValue)
-        {
-            TimelineRecordState state;
-            if (!Enum.TryParse<TimelineRecordState>(timelineRecordStateText, out state))
-            {
-                state = defaultValue;
-            }
-
-            return state;
-        }
     }
 
-    internal static class WellKnownTaskCommand
-    {
-        public static readonly String AddAttachment = "addattachment";
-        public static readonly String Complete = "complete";
-        public static readonly String Debug = "debug";
-        public static readonly String LogDetail = "logdetail";
-        public static readonly String LogIssue = "logissue";
-        public static readonly String LogIssue_xplatCompat = "issue";
-        public static readonly String PrependPath = "prependpath";
-        public static readonly String SetProgress = "setprogress";
-        public static readonly String SetSecret = "setsecret";
-        public static readonly String SetVariable = "setvariable";
-        public static readonly String SetTaskVariable = "settaskvariable";
-        public static readonly String SetEndpoint = "setendpoint";
-        public static readonly String UploadFile = "uploadfile";
-        public static readonly String UploadSummary = "uploadsummary";
-    }
-
-    internal static class TaskProgressEventProperties
-    {
-        public static readonly String Value = "value";
-    }
 
     internal static class TaskSetVariableEventProperties
     {
         public static readonly String Variable = "variable";
         public static readonly String IsSecret = "issecret";
         public static readonly String IsOutput = "isoutput";
+        public static readonly String IsReadOnly = "isreadonly";
     }
 
     internal static class TaskCompleteEventProperties
     {
         public static readonly String Result = "result";
+        public static readonly String Done = "done";
     }
 
     internal static class TaskIssueEventProperties
@@ -677,7 +784,6 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
         public static readonly String ColumNumber = "columnnumber";
         public static readonly String SourcePath = "sourcepath";
         public static readonly String LineNumber = "linenumber";
-        public static readonly String ProjectId = "id";
     }
 
     internal static class TaskAddAttachmentEventProperties

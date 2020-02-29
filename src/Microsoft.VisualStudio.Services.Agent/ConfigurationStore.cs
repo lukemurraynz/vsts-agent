@@ -1,6 +1,10 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using Microsoft.VisualStudio.Services.Agent.Util;
 using System.IO;
 using System.Runtime.Serialization;
+using System.Text;
 using System.Threading;
 
 namespace Microsoft.VisualStudio.Services.Agent
@@ -22,6 +26,9 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         [IgnoreDataMember]
         public bool IsHosted => !string.IsNullOrEmpty(NotificationPipeName) || !string.IsNullOrEmpty(NotificationSocketAddress);
+
+        [DataMember(EmitDefaultValue = false)]
+        public string Fingerprint { get; set; }
 
         [DataMember(EmitDefaultValue = false)]
         public string NotificationPipeName { get; set; }
@@ -47,7 +54,7 @@ namespace Microsoft.VisualStudio.Services.Agent
         [DataMember(EmitDefaultValue = false)]
         public string WorkFolder { get; set; }
 
-        // Do not use Project Name any more to save in agent settings file. Ensure to use ProjectId. 
+        // Do not use Project Name any more to save in agent settings file. Ensure to use ProjectId.
         // Deployment Group scenario will not work for project rename scenario if we work with projectName
         [DataMember(EmitDefaultValue = false)]
         public string ProjectName { get; set; }
@@ -63,6 +70,15 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         [DataMember(EmitDefaultValue = false)]
         public string CollectionName { get; set; }
+
+        [DataMember(EmitDefaultValue = false)]
+        public string MonitorSocketAddress { get; set; }
+
+        [DataMember(EmitDefaultValue = false)]
+        public int EnvironmentId { get; set; }
+
+        [DataMember(EmitDefaultValue = false)]
+        public int EnvironmentVMResourceId { get; set; }
     }
 
     [DataContract]
@@ -78,10 +94,9 @@ namespace Microsoft.VisualStudio.Services.Agent
     [DataContract]
     public sealed class AgentRuntimeOptions
     {
-#if OS_WINDOWS
         [DataMember(EmitDefaultValue = false)]
+        /// <summary>Use SecureChannel (only valid on Windows)</summary>
         public bool GitUseSecureChannel { get; set; }
-#endif
     }
 
     [ServiceLocator(Default = typeof(ConfigurationStore))]
@@ -133,19 +148,19 @@ namespace Microsoft.VisualStudio.Services.Agent
             RootFolder = HostContext.GetDirectory(WellKnownDirectory.Root);
             Trace.Info("RootFolder: {0}", RootFolder);
 
-            _configFilePath = IOUtil.GetConfigFilePath();
+            _configFilePath = hostContext.GetConfigFile(WellKnownConfigFile.Agent);
             Trace.Info("ConfigFilePath: {0}", _configFilePath);
 
-            _credFilePath = IOUtil.GetCredFilePath();
+            _credFilePath = hostContext.GetConfigFile(WellKnownConfigFile.Credentials);
             Trace.Info("CredFilePath: {0}", _credFilePath);
 
-            _serviceConfigFilePath = IOUtil.GetServiceConfigFilePath();
+            _serviceConfigFilePath = hostContext.GetConfigFile(WellKnownConfigFile.Service);
             Trace.Info("ServiceConfigFilePath: {0}", _serviceConfigFilePath);
 
-            _autoLogonSettingsFilePath = IOUtil.GetAutoLogonSettingsFilePath();
+            _autoLogonSettingsFilePath = hostContext.GetConfigFile(WellKnownConfigFile.Autologon);
             Trace.Info("AutoLogonSettingsFilePath: {0}", _autoLogonSettingsFilePath);
 
-            _runtimeOptionsFilePath = IOUtil.GetRuntimeOptionsFilePath();
+            _runtimeOptionsFilePath = hostContext.GetConfigFile(WellKnownConfigFile.Options);
             Trace.Info("RuntimeOptionsFilePath: {0}", _runtimeOptionsFilePath);
         }
 
@@ -153,7 +168,6 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public bool HasCredentials()
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             Trace.Info("HasCredentials()");
             bool credsStored = (new FileInfo(_credFilePath)).Exists;
             Trace.Info("stored {0}", credsStored);
@@ -163,14 +177,13 @@ namespace Microsoft.VisualStudio.Services.Agent
         public bool IsConfigured()
         {
             Trace.Info("IsConfigured()");
-            bool configured = HostContext.RunMode == RunMode.Local || (new FileInfo(_configFilePath)).Exists;
+            bool configured = (new FileInfo(_configFilePath)).Exists;
             Trace.Info("IsConfigured: {0}", configured);
             return configured;
         }
 
         public bool IsServiceConfigured()
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             Trace.Info("IsServiceConfigured()");
             bool serviceConfigured = (new FileInfo(_serviceConfigFilePath)).Exists;
             Trace.Info($"IsServiceConfigured: {serviceConfigured}");
@@ -187,7 +200,6 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public CredentialData GetCredentials()
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             if (_creds == null)
             {
                 _creds = IOUtil.LoadObject<CredentialData>(_credFilePath);
@@ -203,27 +215,13 @@ namespace Microsoft.VisualStudio.Services.Agent
                 AgentSettings configuredSettings = null;
                 if (File.Exists(_configFilePath))
                 {
-                    configuredSettings = IOUtil.LoadObject<AgentSettings>(_configFilePath);
+                    string json = File.ReadAllText(_configFilePath, Encoding.UTF8);
+                    Trace.Info($"Read setting file: {json.Length} chars");
+                    configuredSettings = StringUtil.ConvertFromJson<AgentSettings>(json);
                 }
 
-                if (HostContext.RunMode == RunMode.Local)
-                {
-                    _settings = new AgentSettings()
-                    {
-                        AcceptTeeEula = configuredSettings?.AcceptTeeEula ?? false,
-                        AgentId = 1,
-                        AgentName = "local-runner-agent",
-                        PoolId = 1,
-                        PoolName = "local-runner-pool",
-                        ServerUrl = "http://127.0.0.1/vsts-agent-local-runner",
-                        WorkFolder = configuredSettings?.WorkFolder ?? Constants.Path.WorkDirectory
-                    };
-                }
-                else
-                {
-                    ArgUtil.NotNull(configuredSettings, nameof(configuredSettings));
-                    _settings = configuredSettings;
-                }
+                ArgUtil.NotNull(configuredSettings, nameof(configuredSettings));
+                _settings = configuredSettings;
             }
 
             return _settings;
@@ -241,7 +239,6 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public void SaveCredential(CredentialData credential)
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             Trace.Info("Saving {0} credential @ {1}", credential.Scheme, _credFilePath);
             if (File.Exists(_credFilePath))
             {
@@ -257,7 +254,6 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public void SaveSettings(AgentSettings settings)
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             Trace.Info("Saving agent settings.");
             if (File.Exists(_configFilePath))
             {
@@ -288,13 +284,11 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public void DeleteCredential()
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             IOUtil.Delete(_credFilePath, default(CancellationToken));
         }
 
         public void DeleteSettings()
         {
-            ArgUtil.Equal(RunMode.Normal, HostContext.RunMode, nameof(HostContext.RunMode));
             IOUtil.Delete(_configFilePath, default(CancellationToken));
         }
 
