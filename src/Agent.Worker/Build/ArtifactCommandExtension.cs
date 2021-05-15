@@ -30,10 +30,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
     {
         public string Name => "associate";
         public List<string> Aliases => null;
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA2000:Dispose objects before losing scope", MessageId = "WorkerUtilities")]
         public void Execute(IExecutionContext context, Command command)
         {
             ArgUtil.NotNull(context, nameof(context));
             ArgUtil.NotNull(context.Endpoints, nameof(context.Endpoints));
+            ArgUtil.NotNull(command, nameof(command));
 
             var eventProperties = command.Properties;
             var data = command.Data;
@@ -123,10 +126,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
     {
         public string Name => "upload";
         public List<string> Aliases => null;
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA2000:Dispose objects before losing scope", MessageId = "WorkerUtilities")]
         public void Execute(IExecutionContext context, Command command)
         {
             ArgUtil.NotNull(context, nameof(context));
             ArgUtil.NotNull(context.Endpoints, nameof(context.Endpoints));
+            ArgUtil.NotNull(command, nameof(command));
 
             var eventProperties = command.Properties;
             var data = command.Data;

@@ -6,18 +6,22 @@ using System.IO;
 using System.IO.Pipes;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.VisualStudio.Services.Agent.Util;
 
 namespace Microsoft.VisualStudio.Services.Agent
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Naming", "CA1711: Identifiers should not have incorrect suffix")]
     public delegate void StartProcessDelegate(string pipeHandleOut, string pipeHandleIn);
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1008: Enums should have zero value")]
     public enum MessageType
     {
         NotInitialized = -1,
         NewJobRequest = 1,
         CancelRequest = 2,
         AgentShutdown = 3,
-        OperatingSystemShutdown = 4
+        OperatingSystemShutdown = 4,
+        JobMetadataUpdate = 5,
     }
 
     public struct WorkerMessage
@@ -52,6 +56,7 @@ namespace Microsoft.VisualStudio.Services.Agent
 
         public void StartServer(StartProcessDelegate startProcess, bool disposeLocalClientHandle = true)
         {
+            ArgUtil.NotNull(startProcess, nameof(startProcess));
             _outServer = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable);
             _inServer = new AnonymousPipeServerStream(PipeDirection.In, HandleInheritability.Inheritable);
             _readStream = new StreamString(_inServer);

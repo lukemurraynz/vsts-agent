@@ -26,9 +26,11 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Telemetry
     {
         public string Name => "publish";
         public List<string> Aliases => null;
+
         public void Execute(IExecutionContext context, Command command)
         {
             ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
             Dictionary<string, string> eventProperties = command.Properties;
             string data = command.Data;
             string area;
@@ -64,6 +66,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Telemetry
                 throw new ArgumentException(StringUtil.Loc("TelemetryCommandDataError", data, ex.Message));
             }
 
+            PublishEvent(context, ciEvent);
+        }
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA2000:Dispose objects before losing scope", MessageId = "GetVssConnection")]
+        public void PublishEvent(IExecutionContext context, CustomerIntelligenceEvent ciEvent)
+        {
             ICustomerIntelligenceServer ciService;
             VssConnection vssConnection;
             try

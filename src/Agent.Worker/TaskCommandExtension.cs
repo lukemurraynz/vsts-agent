@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using Agent.Sdk.Knob;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using System;
@@ -43,6 +44,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
         private readonly Dictionary<Guid, TimelineRecord> _timelineRecordsTracker = new Dictionary<Guid, TimelineRecord>();
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
@@ -53,7 +57,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 string.IsNullOrEmpty(timelineRecord) ||
                 new Guid(timelineRecord).Equals(Guid.Empty))
             {
-                throw new Exception(StringUtil.Loc("MissingTimelineRecordId"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingTimelineRecordId"));
             }
             else
             {
@@ -139,7 +143,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 if (record.ParentId != null &&
                     record.ParentId != trackingRecord.ParentId)
                 {
-                    throw new Exception(StringUtil.Loc("CannotChangeParentTimelineRecord"));
+                    throw new InvalidOperationException(StringUtil.Loc("CannotChangeParentTimelineRecord"));
                 }
                 else if (record.ParentId == null)
                 {
@@ -166,19 +170,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 // make sure we have name/type and parent record has created.
                 if (string.IsNullOrEmpty(record.Name))
                 {
-                    throw new Exception(StringUtil.Loc("NameRequiredForTimelineRecord"));
+                    throw new ArgumentNullException(StringUtil.Loc("NameRequiredForTimelineRecord"));
                 }
 
                 if (string.IsNullOrEmpty(record.RecordType))
                 {
-                    throw new Exception(StringUtil.Loc("TypeRequiredForTimelineRecord"));
+                    throw new ArgumentNullException(StringUtil.Loc("TypeRequiredForTimelineRecord"));
                 }
 
                 if (record.ParentId != null && record.ParentId != Guid.Empty)
                 {
                     if (!_timelineRecordsTracker.ContainsKey(record.ParentId.Value))
                     {
-                        throw new Exception(StringUtil.Loc("ParentTimelineNotCreated"));
+                        throw new ArgumentNullException(StringUtil.Loc("ParentTimelineNotCreated"));
                     }
                 }
 
@@ -229,6 +233,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var data = command.Data;
             if (!string.IsNullOrEmpty(data))
             {
@@ -241,7 +248,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
             else
             {
-                throw new Exception(StringUtil.Loc("CannotUploadSummary"));
+                throw new InvalidOperationException(StringUtil.Loc("CannotUploadSummary"));
             }
         }
     }
@@ -253,6 +260,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var data = command.Data;
 
             if (!string.IsNullOrEmpty(data))
@@ -266,7 +276,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
             else
             {
-                throw new Exception(StringUtil.Loc("CannotUploadFile"));
+                throw new InvalidOperationException(StringUtil.Loc("CannotUploadFile"));
             }
         }
     }
@@ -278,32 +288,38 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             AddAttachment(context, command.Properties, command.Data);
         }
 
         public static void AddAttachment(IExecutionContext context, Dictionary<string, string> eventProperties, string data)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(eventProperties, nameof(eventProperties));
+
             String type;
             if (!eventProperties.TryGetValue(TaskAddAttachmentEventProperties.Type, out type) || String.IsNullOrEmpty(type))
             {
-                throw new Exception(StringUtil.Loc("MissingAttachmentType"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingAttachmentType"));
             }
 
             String name;
             if (!eventProperties.TryGetValue(TaskAddAttachmentEventProperties.Name, out name) || String.IsNullOrEmpty(name))
             {
-                throw new Exception(StringUtil.Loc("MissingAttachmentName"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingAttachmentName"));
             }
 
             char[] s_invalidFileChars = Path.GetInvalidFileNameChars();
             if (type.IndexOfAny(s_invalidFileChars) != -1)
             {
-                throw new Exception($"Type contain invalid characters. ({String.Join(",", s_invalidFileChars)})");
+                throw new ArgumentException($"Type contains invalid characters. ({String.Join(",", s_invalidFileChars)})");
             }
 
             if (name.IndexOfAny(s_invalidFileChars) != -1)
             {
-                throw new Exception($"Name contain invalid characters. ({String.Join(", ", s_invalidFileChars)})");
+                throw new ArgumentException($"Name contains invalid characters. ({String.Join(", ", s_invalidFileChars)})");
             }
 
             // Translate file path back from container path
@@ -316,7 +332,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
             else
             {
-                throw new Exception(StringUtil.Loc("MissingAttachmentFile"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingAttachmentFile"));
             }
         }
     }
@@ -329,6 +345,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
@@ -366,7 +385,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
             else
             {
-                throw new Exception($"issue type {issueType} is not an expected issue type.");
+                throw new ArgumentException($"issue type {issueType} is not an expected issue type.");
             }
 
             String sourcePath;
@@ -448,6 +467,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
@@ -457,7 +479,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 String.IsNullOrEmpty(resultText) ||
                 !Enum.TryParse<TaskResult>(resultText, out result))
             {
-                throw new Exception(StringUtil.Loc("InvalidCommandResult"));
+                throw new ArgumentException(StringUtil.Loc("InvalidCommandResult"));
             }
 
             context.Result = TaskResultUtil.MergeTaskResults(context.Result, result);
@@ -480,6 +502,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
@@ -506,6 +531,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var data = command.Data;
             if (!string.IsNullOrEmpty(data))
             {
@@ -522,13 +550,16 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
             String name;
             if (!eventProperties.TryGetValue(TaskSetVariableEventProperties.Variable, out name) || String.IsNullOrEmpty(name))
             {
-                throw new Exception(StringUtil.Loc("MissingVariableName"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingVariableName"));
             }
 
             String isSecretValue;
@@ -558,7 +589,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 // TODO - remove this and just always throw once the feature has been fully rolled out.
                 if (context.Variables.Read_Only_Variables)
                 {
-                    throw new Exception(StringUtil.Loc("ReadOnlyVariable", name));
+                    throw new InvalidOperationException(StringUtil.Loc("ReadOnlyVariable", name));
                 }
                 else
                 {
@@ -568,21 +599,20 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             if (isSecret)
             {
-                bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
-                if (allowMultilineSecret == null)
-                {
-                    allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
-                }
 
                 if (!string.IsNullOrEmpty(data) &&
                     data.Contains(Environment.NewLine) &&
-                    !allowMultilineSecret.Value)
+                    !AgentKnobs.AllowUnsafeMultilineSecret.GetValue(context).AsBoolean())
                 {
                     throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
                 }
             }
 
-            context.SetVariable(name, data, isSecret: isSecret, isOutput: isOutput, isReadOnly: isReadOnly);
+            var checker = context.GetHostContext().GetService<ITaskRestrictionsChecker>();
+            if (checker.CheckSettableVariable(context, name))
+            {
+                context.SetVariable(name, data, isSecret: isSecret, isOutput: isOutput, isReadOnly: isReadOnly);
+            }
         }
     }
 
@@ -594,6 +624,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var data = command.Data;
             context.Debug(data);
         }
@@ -607,13 +640,16 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
             String name;
             if (!eventProperties.TryGetValue(TaskSetTaskVariableEventProperties.Variable, out name) || String.IsNullOrEmpty(name))
             {
-                throw new Exception(StringUtil.Loc("MissingTaskVariableName"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingTaskVariableName"));
             }
 
             String isSecretValue;
@@ -636,7 +672,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 // TODO - remove this and just always throw once the feature has been fully rolled out.
                 if (context.Variables.Read_Only_Variables)
                 {
-                    throw new Exception(StringUtil.Loc("ReadOnlyTaskVariable", name));
+                    throw new InvalidOperationException(StringUtil.Loc("ReadOnlyTaskVariable", name));
                 }
                 else
                 {
@@ -646,15 +682,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             if (isSecret)
             {
-                bool? allowMultilineSecret = context.Variables.GetBoolean("SYSTEM_UNSAFEALLOWMULTILINESECRET");
-                if (allowMultilineSecret == null)
-                {
-                    allowMultilineSecret = StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("SYSTEM_UNSAFEALLOWMULTILINESECRET"), false);
-                }
-
                 if (!string.IsNullOrEmpty(data) &&
                     data.Contains(Environment.NewLine) &&
-                    !allowMultilineSecret.Value)
+                    !AgentKnobs.AllowUnsafeMultilineSecret.GetValue(context).AsBoolean())
                 {
                     throw new InvalidOperationException(StringUtil.Loc("MultilineSecret"));
                 }
@@ -671,18 +701,21 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var eventProperties = command.Properties;
             var data = command.Data;
 
             if (string.IsNullOrEmpty(data))
             {
-                throw new Exception(StringUtil.Loc("EnterValidValueFor0", "setendpoint"));
+                throw new ArgumentNullException(StringUtil.Loc("EnterValidValueFor0", "setendpoint"));
             }
 
             String field;
             if (!eventProperties.TryGetValue(TaskSetEndpointEventProperties.Field, out field) || String.IsNullOrEmpty(field))
             {
-                throw new Exception(StringUtil.Loc("MissingEndpointField"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingEndpointField"));
             }
 
             // Mask auth parameter data upfront to avoid accidental secret exposure by invalid endpoint/key/data
@@ -694,19 +727,19 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             String endpointIdInput;
             if (!eventProperties.TryGetValue(TaskSetEndpointEventProperties.EndpointId, out endpointIdInput) || String.IsNullOrEmpty(endpointIdInput))
             {
-                throw new Exception(StringUtil.Loc("MissingEndpointId"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingEndpointId"));
             }
 
             Guid endpointId;
             if (!Guid.TryParse(endpointIdInput, out endpointId))
             {
-                throw new Exception(StringUtil.Loc("InvalidEndpointId"));
+                throw new ArgumentNullException(StringUtil.Loc("InvalidEndpointId"));
             }
 
             var endpoint = context.Endpoints.Find(a => a.Id == endpointId);
             if (endpoint == null)
             {
-                throw new Exception(StringUtil.Loc("InvalidEndpointId"));
+                throw new ArgumentNullException(StringUtil.Loc("InvalidEndpointId"));
             }
 
             if (String.Equals(field, "url", StringComparison.OrdinalIgnoreCase))
@@ -714,7 +747,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 Uri uri;
                 if (!Uri.TryCreate(data, UriKind.Absolute, out uri))
                 {
-                    throw new Exception(StringUtil.Loc("InvalidEndpointUrl"));
+                    throw new ArgumentNullException(StringUtil.Loc("InvalidEndpointUrl"));
                 }
 
                 endpoint.Url = uri;
@@ -724,7 +757,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             String key;
             if (!eventProperties.TryGetValue(TaskSetEndpointEventProperties.Key, out key) || String.IsNullOrEmpty(key))
             {
-                throw new Exception(StringUtil.Loc("MissingEndpointKey"));
+                throw new ArgumentNullException(StringUtil.Loc("MissingEndpointKey"));
             }
 
             if (String.Equals(field, "dataParameter", StringComparison.OrdinalIgnoreCase))
@@ -737,7 +770,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             }
             else
             {
-                throw new Exception(StringUtil.Loc("InvalidEndpointField"));
+                throw new ArgumentException(StringUtil.Loc("InvalidEndpointField"));
             }
         }
     }
@@ -750,6 +783,15 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
+            var checker = context.GetHostContext().GetService<ITaskRestrictionsChecker>();
+            if (!checker.CheckSettableVariable(context, Constants.PathVariable))
+            {
+                return;
+            }
+
             var data = command.Data;
 
             ArgUtil.NotNullOrEmpty(data, this.Name);

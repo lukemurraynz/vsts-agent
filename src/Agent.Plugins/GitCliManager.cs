@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
 using Agent.Sdk;
+using Agent.Sdk.Knob;
 using Microsoft.VisualStudio.Services.Agent.Util;
 using Microsoft.VisualStudio.Services.Common;
 using Pipelines = Microsoft.TeamFoundation.DistributedTask.Pipelines;
@@ -170,8 +171,7 @@ namespace Agent.Plugins.Repository
                 forceTag = "--force";
             }
 
-            bool reducedOutput = StringUtil.ConvertToBoolean(
-                context.Variables.GetValueOrDefault("agent.source.checkout.quiet")?.Value);
+            bool reducedOutput = AgentKnobs.QuietCheckout.GetValue(context).AsBoolean();
             string progress = reducedOutput ? string.Empty : "--progress";
 
             // default options for git fetch.
@@ -255,7 +255,7 @@ namespace Agent.Plugins.Repository
                     if (++retryCount < 3)
                     {
                         var backOff = BackoffTimerHelper.GetRandomBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10));
-                        context.Warning($"Git lfs fetch failed with exit code {fetchExitCode}, back off {backOff.TotalSeconds} seconds before retry.");
+                        context.Output($"Git lfs fetch failed with exit code {fetchExitCode}, back off {backOff.TotalSeconds} seconds before retry.");
                         await Task.Delay(backOff);
                     }
                 }
@@ -473,6 +473,15 @@ namespace Agent.Plugins.Repository
             return await ExecuteGitCommandAsync(context, repositoryPath, "prune", "-v");
         }
 
+        // git lfs prune
+        public async Task<int> GitLFSPrune(AgentTaskPluginExecutionContext context, string repositoryPath)
+        {
+            ArgUtil.NotNull(context, nameof(context));
+
+            context.Debug("Deletes local copies of LFS files which are old, thus freeing up disk space. Prune operates by enumerating all the locally stored objects, and then deleting any which are not referenced by at least ONE of the following:");
+            return await ExecuteGitCommandAsync(context, repositoryPath, "lfs", "prune");
+        }
+
         // git count-objects -v -H
         public async Task<int> GitCountObjects(AgentTaskPluginExecutionContext context, string repositoryPath)
         {
@@ -565,25 +574,27 @@ namespace Agent.Plugins.Repository
             string arg = StringUtil.Format($"{command} {options}").Trim();
             context.Command($"git {arg}");
 
-            var processInvoker = new ProcessInvoker(context, disableWorkerCommands: true);
-            processInvoker.OutputDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+            using (var processInvoker = new ProcessInvoker(context, disableWorkerCommands: true))
             {
-                context.Output(message.Data);
-            };
+                processInvoker.OutputDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+                {
+                    context.Output(message.Data);
+                };
 
-            processInvoker.ErrorDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
-            {
-                context.Output(message.Data);
-            };
+                processInvoker.ErrorDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+                {
+                    context.Output(message.Data);
+                };
 
-            return await processInvoker.ExecuteAsync(
-                workingDirectory: repoRoot,
-                fileName: gitPath,
-                arguments: arg,
-                environment: gitEnv,
-                requireExitCodeZero: false,
-                outputEncoding: _encoding,
-                cancellationToken: cancellationToken);
+                return await processInvoker.ExecuteAsync(
+                    workingDirectory: repoRoot,
+                    fileName: gitPath,
+                    arguments: arg,
+                    environment: gitEnv,
+                    requireExitCodeZero: false,
+                    outputEncoding: _encoding,
+                    cancellationToken: cancellationToken);
+            }
         }
 
         protected virtual async Task<int> ExecuteGitCommandAsync(AgentTaskPluginExecutionContext context, string repoRoot, string command, string options, IList<string> output)
@@ -596,25 +607,27 @@ namespace Agent.Plugins.Repository
                 output = new List<string>();
             }
 
-            var processInvoker = new ProcessInvoker(context, disableWorkerCommands: true);
-            processInvoker.OutputDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+            using (var processInvoker = new ProcessInvoker(context, disableWorkerCommands: true))
             {
-                output.Add(message.Data);
-            };
+                processInvoker.OutputDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+                {
+                    output.Add(message.Data);
+                };
 
-            processInvoker.ErrorDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
-            {
-                context.Output(message.Data);
-            };
+                processInvoker.ErrorDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+                {
+                    context.Output(message.Data);
+                };
 
-            return await processInvoker.ExecuteAsync(
-                workingDirectory: repoRoot,
-                fileName: gitPath,
-                arguments: arg,
-                environment: gitEnv,
-                requireExitCodeZero: false,
-                outputEncoding: _encoding,
-                cancellationToken: default(CancellationToken));
+                return await processInvoker.ExecuteAsync(
+                    workingDirectory: repoRoot,
+                    fileName: gitPath,
+                    arguments: arg,
+                    environment: gitEnv,
+                    requireExitCodeZero: false,
+                    outputEncoding: _encoding,
+                    cancellationToken: default(CancellationToken));
+            }
         }
 
         protected virtual async Task<int> ExecuteGitCommandAsync(AgentTaskPluginExecutionContext context, string repoRoot, string command, string options, string additionalCommandLine, CancellationToken cancellationToken)
@@ -622,25 +635,27 @@ namespace Agent.Plugins.Repository
             string arg = StringUtil.Format($"{additionalCommandLine} {command} {options}").Trim();
             context.Command($"git {arg}");
 
-            var processInvoker = new ProcessInvoker(context, disableWorkerCommands: true);
-            processInvoker.OutputDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+            using (var processInvoker = new ProcessInvoker(context, disableWorkerCommands: true))
             {
-                context.Output(message.Data);
-            };
+                processInvoker.OutputDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+                {
+                    context.Output(message.Data);
+                };
 
-            processInvoker.ErrorDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
-            {
-                context.Output(message.Data);
-            };
+                processInvoker.ErrorDataReceived += delegate (object sender, ProcessDataReceivedEventArgs message)
+                {
+                    context.Output(message.Data);
+                };
 
-            return await processInvoker.ExecuteAsync(
-                workingDirectory: repoRoot,
-                fileName: gitPath,
-                arguments: arg,
-                environment: gitEnv,
-                requireExitCodeZero: false,
-                outputEncoding: _encoding,
-                cancellationToken: cancellationToken);
+                return await processInvoker.ExecuteAsync(
+                    workingDirectory: repoRoot,
+                    fileName: gitPath,
+                    arguments: arg,
+                    environment: gitEnv,
+                    requireExitCodeZero: false,
+                    outputEncoding: _encoding,
+                    cancellationToken: cancellationToken);
+            }
         }
     }
 }

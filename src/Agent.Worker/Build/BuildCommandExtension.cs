@@ -33,6 +33,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
         public List<string> Aliases => null;
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var data = command.Data;
             // Translate file path back from container path
             data = context.TranslateToHostPath(data);
@@ -55,6 +58,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
         public List<string> Aliases => null;
         public void Execute(IExecutionContext context, Command command)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(command, nameof(command));
+
             var data = command.Data;
             // Translate file path back from container path
             data = context.TranslateToHostPath(data);
@@ -74,10 +80,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
     {
         public string Name => "updatebuildnumber";
         public List<string> Aliases => null;
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA2000:Dispose objects before losing scope", MessageId = "GetVssConnection")]
         public void Execute(IExecutionContext context, Command command)
         {
             ArgUtil.NotNull(context, nameof(context));
             ArgUtil.NotNull(context.Endpoints, nameof(context.Endpoints));
+            ArgUtil.NotNull(command, nameof(command));
 
             string data = command.Data;
 
@@ -130,10 +139,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
     {
         public string Name => "addbuildtag";
         public List<string> Aliases => null;
+
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA2000:Dispose objects before losing scope", MessageId = "GetVssConnection")]
         public void Execute(IExecutionContext context, Command command)
         {
             ArgUtil.NotNull(context, nameof(context));
             ArgUtil.NotNull(context.Endpoints, nameof(context.Endpoints));
+            ArgUtil.NotNull(command, nameof(command));
 
             string data = command.Data;
 

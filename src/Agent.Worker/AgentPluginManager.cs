@@ -41,7 +41,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             "Agent.Plugins.PipelineArtifact.DownloadPipelineArtifactTaskV1_1_2, Agent.Plugins",
             "Agent.Plugins.PipelineArtifact.DownloadPipelineArtifactTaskV1_1_3, Agent.Plugins",
             "Agent.Plugins.PipelineArtifact.DownloadPipelineArtifactTaskV2_0_0, Agent.Plugins",
-            "Agent.Plugins.PipelineArtifact.PublishPipelineArtifactTaskV0_140_0, Agent.Plugins"
+            "Agent.Plugins.PipelineArtifact.PublishPipelineArtifactTaskV0_140_0, Agent.Plugins",
+            "Agent.Plugins.BuildArtifacts.DownloadBuildArtifactTaskV1_0_0, Agent.Plugins"
         };
 
         public override void Initialize(IHostContext hostContext)
@@ -90,6 +91,10 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
         public AgentTaskPluginExecutionContext GeneratePluginExecutionContext(IExecutionContext context, Dictionary<string, string> inputs, Variables runtimeVariables)
         {
+            ArgUtil.NotNull(context, nameof(context));
+            ArgUtil.NotNull(inputs, nameof(inputs));
+            ArgUtil.NotNull(runtimeVariables, nameof(runtimeVariables));
+
             // construct plugin context
             var target = context.StepTarget();
             Variables.TranslationMethod translateToHostPath = Variables.DefaultStringTranslator;
@@ -146,8 +151,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
             var pluginContext = GeneratePluginExecutionContext(context, inputs, runtimeVariables);
 
             using (var processInvoker = HostContext.CreateService<IProcessInvoker>())
+            using (var redirectStandardIn = new InputQueue<string>())
             {
-                var redirectStandardIn = new InputQueue<string>();
                 redirectStandardIn.Enqueue(JsonUtility.ToString(pluginContext));
 
                 processInvoker.OutputDataReceived += outputHandler;
@@ -156,7 +161,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                 // Execute the process. Exit code 0 should always be returned.
                 // A non-zero exit code indicates infrastructural failure.
                 // Task failure should be communicated over STDOUT using ## commands.
-                
+
                 // Agent.PluginHost's arguments
                 string arguments = $"task \"{plugin}\"";
                 await processInvoker.ExecuteAsync(workingDirectory: workingDirectory,

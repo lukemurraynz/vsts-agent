@@ -77,11 +77,16 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                     context.Output(StringUtil.Loc("AgentNameLog", context.Variables.Get(Constants.Variables.Agent.Name)));
                     context.Output(StringUtil.Loc("AgentMachineNameLog", context.Variables.Get(Constants.Variables.Agent.MachineName)));
                     context.Output(StringUtil.Loc("AgentVersion", BuildConstants.AgentPackage.Version));
+
+                    // Machine specific setup info
+                    OutputSetupInfo(context);
+
                     string imageVersion = System.Environment.GetEnvironmentVariable(Constants.ImageVersionVariable);
                     if (imageVersion != null)
                     {
                         context.Output(StringUtil.Loc("ImageVersionLog", imageVersion));
                     }
+
                     context.Output(StringUtil.Loc("UserNameLog", System.Environment.UserName));
 
                     // Print proxy setting information for better diagnostic experience
@@ -93,7 +98,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
                     // Give job extension a chance to initialize
                     Trace.Info($"Run initial step from extension {this.GetType().Name}.");
-                    InitializeJobExtension(context, message.Steps, message.Workspace);
+                    InitializeJobExtension(context, message?.Steps, message?.Workspace);
 
                     // Download tasks if not already in the cache
                     Trace.Info("Downloading task definitions.");
@@ -163,7 +168,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
                             Trace.Verbose($"Adding agent init script step.");
                             prepareStep.Initialize(HostContext);
-                            prepareStep.ExecutionContext = jobContext.CreateChild(Guid.NewGuid(), prepareStep.DisplayName, nameof(ManagementScriptStep));
+                            prepareStep.ExecutionContext = jobContext?.CreateChild(Guid.NewGuid(), prepareStep.DisplayName, nameof(ManagementScriptStep));
                             prepareStep.AccessToken = systemConnection.Authorization.Parameters["AccessToken"];
                             prepareStep.Condition = ExpressionManager.Succeeded;
                             preJobSteps.Add(prepareStep);
@@ -191,9 +196,26 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                                                                         data: (object)containers));
                     }
 
-                    foreach (var task in message.Steps.OfType<Pipelines.TaskStep>())
+                    Dictionary<Guid, List<TaskRestrictions>> taskRestrictionsMap = new Dictionary<Guid, List<TaskRestrictions>>();
+                    foreach (var task in message?.Steps.OfType<Pipelines.TaskStep>())
                     {
                         var taskDefinition = taskManager.Load(task);
+
+                        // Collect any task restrictions from the definition or step
+                        var restrictions = new List<TaskRestrictions>();
+                        if (taskDefinition.Data.Restrictions != null)
+                        {
+                            restrictions.Add(new TaskDefinitionRestrictions(taskDefinition.Data));
+                        }
+                        if (string.Equals(WellKnownStepTargetStrings.Restricted, task.Target?.Commands, StringComparison.OrdinalIgnoreCase))
+                        {
+                            restrictions.Add(new TaskRestrictions() { Commands = new TaskCommandRestrictions() { Mode = TaskCommandMode.Restricted } });
+                        }
+                        if (task.Target?.SettableVariables != null)
+                        {
+                            restrictions.Add(new TaskRestrictions() { SettableVariables = task.Target.SettableVariables });
+                        }
+                        taskRestrictionsMap[task.Id] = restrictions;
 
                         List<string> warnings;
                         taskVariablesMapping[task.Id] = new Variables(HostContext, new Dictionary<string, VariableValue>(), out warnings);
@@ -248,6 +270,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                         postJobStepsBuilder.Push(extensionPostJobStep);
                     }
 
+                    ArgUtil.NotNull(jobContext, nameof(jobContext)); // I am not sure why this is needed, but static analysis flagged all uses of jobContext below this point
                     // create execution context for all pre-job steps
                     foreach (var step in preJobSteps)
                     {
@@ -267,7 +290,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                         {
                             ITaskRunner taskStep = step as ITaskRunner;
                             ArgUtil.NotNull(taskStep, step.DisplayName);
-                            taskStep.ExecutionContext = jobContext.CreateChild(Guid.NewGuid(), StringUtil.Loc("PreJob", taskStep.DisplayName), taskStep.Task.Name, taskVariablesMapping[taskStep.Task.Id], outputForward: true);
+                            taskStep.ExecutionContext = jobContext.CreateChild(
+                                Guid.NewGuid(),
+                                StringUtil.Loc("PreJob", taskStep.DisplayName),
+                                taskStep.Task.Name,
+                                taskVariablesMapping[taskStep.Task.Id],
+                                outputForward: true,
+                                taskRestrictions: taskRestrictionsMap[taskStep.Task.Id]);
                         }
                     }
 
@@ -276,7 +305,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                     {
                         ITaskRunner taskStep = step as ITaskRunner;
                         ArgUtil.NotNull(taskStep, step.DisplayName);
-                        taskStep.ExecutionContext = jobContext.CreateChild(taskStep.Task.Id, taskStep.DisplayName, taskStep.Task.Name, taskVariablesMapping[taskStep.Task.Id], outputForward: true);
+                        taskStep.ExecutionContext = jobContext.CreateChild(
+                            taskStep.Task.Id,
+                            taskStep.DisplayName,
+                            taskStep.Task.Name,
+                            taskVariablesMapping[taskStep.Task.Id],
+                            outputForward: true,
+                            taskRestrictions: taskRestrictionsMap[taskStep.Task.Id]);
                     }
 
                     // Add post-job steps from Tasks
@@ -300,7 +335,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
                         {
                             ITaskRunner taskStep = step as ITaskRunner;
                             ArgUtil.NotNull(taskStep, step.DisplayName);
-                            taskStep.ExecutionContext = jobContext.CreateChild(Guid.NewGuid(), StringUtil.Loc("PostJob", taskStep.DisplayName), taskStep.Task.Name, taskVariablesMapping[taskStep.Task.Id], outputForward: true);
+                            taskStep.ExecutionContext = jobContext.CreateChild(
+                                Guid.NewGuid(),
+                                StringUtil.Loc("PostJob", taskStep.DisplayName),
+                                taskStep.Task.Name,
+                                taskVariablesMapping[taskStep.Task.Id],
+                                outputForward: true,
+                                taskRestrictions: taskRestrictionsMap[taskStep.Task.Id]);
                         }
                     }
 
@@ -504,6 +545,39 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker
 
             Trace.Info($"Total accessible running process: {snapshot.Count}.");
             return snapshot;
+        }
+
+        private void OutputSetupInfo(IExecutionContext context)
+        {
+            try
+            {
+                var configurationStore = HostContext.GetService<IConfigurationStore>();
+
+                foreach (var info in configurationStore.GetSetupInfo())
+                {
+                    if (!string.IsNullOrEmpty(info.Detail))
+                    {
+                        var groupName = info.Group;
+                        if (string.IsNullOrEmpty(groupName))
+                        {
+                            groupName = "Machine Setup Info";
+                        }
+
+                        context.Output($"##[group]{groupName}");
+                        var multiLines = info.Detail.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+                        foreach (var line in multiLines)
+                        {
+                            context.Output(line);
+                        }
+                        context.Output("##[endgroup]");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                context.Output($"Fail to load and print machine setup info: {ex.Message}");
+                Trace.Error(ex);
+            }
         }
     }
 }

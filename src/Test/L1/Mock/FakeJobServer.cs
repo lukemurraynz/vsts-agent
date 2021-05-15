@@ -1,12 +1,22 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using System;
-using Microsoft.VisualStudio.Services.WebApi;
 using System.Linq;
+using Microsoft.VisualStudio.Services.Agent.Blob;
+using Microsoft.VisualStudio.Services.WebApi;
 using Microsoft.VisualStudio.Services.Common;
+using Microsoft.VisualStudio.Services.BlobStore.Common;
+using Microsoft.VisualStudio.Services.Content.Common;
+using Microsoft.VisualStudio.Services.Content.Common.Telemetry;
+using BuildXL.Cache.ContentStore.Hashing;
+using BlobIdentifierWithBlocks = Microsoft.VisualStudio.Services.BlobStore.Common.BlobIdentifierWithBlocks;
+using VsoHash = Microsoft.VisualStudio.Services.BlobStore.Common.VsoHash;
 
 namespace Microsoft.VisualStudio.Services.Agent.Tests.L1.Worker
 {
@@ -17,6 +27,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.L1.Worker
         public Dictionary<int, IList<string>> LogLines { get; }
         public Dictionary<Guid, Timeline> Timelines { get; }
         public List<string> AttachmentsCreated { get; }
+        public Dictionary<BlobIdentifierWithBlocks, IList<string>> UploadedLogBlobs { get; }
+        public List<string> UploadedAttachmentBlobFiles { get; }
+        public Dictionary<int, IList<BlobIdentifierWithBlocks>> IdToBlobMapping { get; }
 
         public FakeJobServer()
         {
@@ -25,6 +38,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.L1.Worker
             LogObjects = new Dictionary<int, TaskLog>();
             LogLines = new Dictionary<int, IList<string>>();
             AttachmentsCreated = new List<string>();
+            UploadedLogBlobs = new Dictionary<BlobIdentifierWithBlocks, IList<string>>();
+            IdToBlobMapping = new Dictionary<int, IList<BlobIdentifierWithBlocks>>();
         }
 
         public Task ConnectAsync(VssConnection jobConnection)
@@ -34,13 +49,15 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.L1.Worker
 
         public Task<TaskLog> AppendLogContentAsync(Guid scopeIdentifier, string hubName, Guid planId, int logId, Stream uploadStream, CancellationToken cancellationToken)
         {
-            var reader = new StreamReader(uploadStream);
-            var text = reader.ReadToEnd();
-            var addedLines = text.Split("\n");
+            using (var reader = new StreamReader(uploadStream))
+            {
+                var text = reader.ReadToEnd();
+                var addedLines = text.Split("\n");
 
-            var lines = LogLines.GetValueOrDefault(logId);
-            lines.AddRange(addedLines);
-            return Task.FromResult(LogObjects.GetValueOrDefault(logId));
+                var lines = LogLines.GetValueOrDefault(logId);
+                lines.AddRange(addedLines);
+                return Task.FromResult(LogObjects.GetValueOrDefault(logId));
+            }
         }
 
         public Task AppendTimelineRecordFeedAsync(Guid scopeIdentifier, string hubName, Guid planId, Guid timelineId, Guid timelineRecordId, Guid stepId, IList<string> lines, long startLine, CancellationToken cancellationToken)
@@ -54,11 +71,18 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.L1.Worker
             return Task.FromResult(new TaskAttachment(type, name));
         }
 
+        public Task<TaskAttachment> AssosciateAttachmentAsync(Guid scopeIdentifier, string hubName, Guid planId, Guid timelineId, Guid timelineRecordId, string type, string name, DedupIdentifier dedupId, long length, CancellationToken cancellationToken)
+        {
+            AttachmentsCreated.Add(name);
+            return Task.FromResult(new TaskAttachment(type, name));
+        }
+
         public Task<TaskLog> CreateLogAsync(Guid scopeIdentifier, string hubName, Guid planId, TaskLog log, CancellationToken cancellationToken)
         {
             log.Id = LogObjects.Count + 1;
             LogObjects.Add(log.Id, log);
             LogLines.Add(log.Id, new List<string>());
+            IdToBlobMapping.Add(log.Id, new List<BlobIdentifierWithBlocks>());
             return Task.FromResult(log);
         }
 
@@ -96,6 +120,38 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests.L1.Worker
         public Task<Timeline> GetTimelineAsync(Guid scopeIdentifier, string hubName, Guid planId, Guid timelineId, CancellationToken cancellationToken)
         {
             return Task.FromResult(Timelines[timelineId]);
+        }
+
+        public Task<BlobIdentifierWithBlocks> UploadLogToBlobStore(Stream blob, string hubName, Guid planId, int logId)
+        {
+            var blockBlobId = VsoHash.CalculateBlobIdentifierWithBlocks(blob);
+            blob.Position = 0;
+            using (var reader = new StreamReader(blob))
+            {
+                var text = reader.ReadToEnd();
+                var lines = text.Split("\n");
+                UploadedLogBlobs.Add(blockBlobId, lines);
+            }
+
+            return Task.FromResult(blockBlobId);
+        }
+
+        public async Task<(DedupIdentifier dedupId, ulong length)> UploadAttachmentToBlobStore(bool verbose, string itemPath, Guid planId, Guid jobId, CancellationToken cancellationToken)
+        {
+            UploadedAttachmentBlobFiles.Add(itemPath);
+            var chunk = await ChunkerHelper.CreateFromFileAsync(FileSystem.Instance, itemPath, cancellationToken, false);
+            var rootNode = new DedupNode(new []{ chunk});
+            var dedupId = rootNode.GetDedupIdentifier(HashType.Dedup64K);
+
+            return (dedupId, rootNode.TransitiveContentBytes);
+        }
+
+        public Task<TaskLog> AssociateLogAsync(Guid scopeIdentifier, string hubName, Guid planId, int logId, BlobIdentifierWithBlocks blobBlockId, int lineCount, CancellationToken cancellationToken)
+        {
+            var ids = IdToBlobMapping.GetValueOrDefault(logId);
+            ids.Add(blobBlockId);
+
+            return Task.FromResult(LogObjects.GetValueOrDefault(logId));
         }
 
         private void MergeTimelineRecords(TimelineRecord timelineRecord, TimelineRecord rec)

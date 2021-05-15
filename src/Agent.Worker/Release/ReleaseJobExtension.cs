@@ -57,6 +57,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release
 
         public override string GetRootedPath(IExecutionContext context, string path)
         {
+            ArgUtil.NotNull(context, nameof(context));
+
             string rootedPath = null;
 
             if (!string.IsNullOrEmpty(path) &&
@@ -128,6 +130,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release
             }
         }
 
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA2000:Dispose objects before losing scope", MessageId = "releaseServer")]
         private IList<AgentArtifactDefinition> GetReleaseArtifacts(IExecutionContext executionContext)
         {
             try
@@ -154,9 +157,13 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release
             IList<AgentArtifactDefinition> agentArtifactDefinitions)
         {
             Trace.Entering();
+            string commitsWorkFolder = String.Empty;
 
-            Trace.Info("Creating commit work folder");
-            string commitsWorkFolder = GetCommitsWorkFolder(executionContext);
+            if (agentArtifactDefinitions?.Any(x => x.ArtifactType == AgentArtifactType.Jenkins) == true)
+            {
+                Trace.Info("Creating commit work folder");
+                commitsWorkFolder = GetCommitsWorkFolder(executionContext);
+            }
 
             // Note: We are having an explicit type here. For other artifact types we are planning to go with tasks
             // Only for jenkins we are making the agent to download
@@ -287,8 +294,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release
 
         public override void InitializeJobExtension(IExecutionContext executionContext, IList<JobStep> steps, WorkspaceOptions workspace)
         {
-            Trace.Entering();
             ArgUtil.NotNull(executionContext, nameof(executionContext));
+            Trace.Entering();
 
             executionContext.Output(StringUtil.Loc("PrepareReleasesDir"));
             var directoryManager = HostContext.GetService<IReleaseDirectoryManager>();
@@ -309,13 +316,17 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Release
                 releaseDefinition = regex.Replace(releaseDefinitionName, string.Empty);
             }
 
+            ArgUtil.NotNull(executionContext, nameof(executionContext)); // I am not sure why this is needed, but static analysis flagged all uses of executionContext below this point
             var releaseTrackingConfig = directoryManager.PrepareArtifactsDirectory(
                 HostContext.GetDirectory(WellKnownDirectory.Work),
                 executionContext.Variables.System_CollectionId,
                 executionContext.Variables.System_TeamProjectId.ToString(),
                 releaseDefinition);
 
-            ReleaseWorkingFolder = releaseTrackingConfig.ReleaseDirectory;
+            ReleaseWorkingFolder = Path.Combine(
+                        HostContext.GetDirectory(WellKnownDirectory.Work),
+                        releaseTrackingConfig.ReleaseDirectory);
+
             ArtifactsWorkingFolder = string.IsNullOrEmpty(executionContext.Variables.Release_ArtifactsDirectory)
                 ? Path.Combine(
                         HostContext.GetDirectory(WellKnownDirectory.Work),

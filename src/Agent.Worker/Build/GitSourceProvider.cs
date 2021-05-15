@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using Agent.Sdk;
+using Agent.Sdk.Knob;
 using Microsoft.TeamFoundation.Build.WebApi;
 using Microsoft.TeamFoundation.DistributedTask.WebApi;
 using Microsoft.VisualStudio.Services.Agent.Util;
@@ -190,6 +191,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA1505: Avoid unmaintainable code")]
     public abstract class GitSourceProvider : SourceProvider, ISourceProvider
     {
         // refs prefix
@@ -306,7 +308,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
             bool preferGitFromPath = true;
             bool schannelSslBackend = false;
-            
+
             if (PlatformUtil.RunningOnWindows)
             {
                 // on Windows, we must check for SChannel and PreferGitFromPath
@@ -314,17 +316,9 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                 Trace.Info($"schannelSslBackend={schannelSslBackend}");
 
                 // Determine which git will be use
-                // On windows, we prefer the built-in portable git within the agent's externals folder, 
+                // On windows, we prefer the built-in portable git within the agent's externals folder,
                 // set system.prefergitfrompath=true can change the behavior, agent will find git.exe from %PATH%
-                var definitionSetting = executionContext.Variables.GetBoolean(Constants.Variables.System.PreferGitFromPath);
-                if (definitionSetting != null)
-                {
-                    preferGitFromPath = definitionSetting.Value;
-                }
-                else
-                {
-                    bool.TryParse(Environment.GetEnvironmentVariable(Constants.Variables.System.PreferGitFromPath), out preferGitFromPath);
-                }
+                preferGitFromPath = AgentKnobs.PreferGitFromPath.GetValue(executionContext).AsBoolean();
             }
 
             // Determine do we need to provide creds to git operation
@@ -1120,6 +1114,20 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                     throw new InvalidOperationException($"Git prune failed with exit code: {exitCode_prune}");
                 }
 
+                // git lfs prune
+                var lfsVersion = await _gitCommandManager.GitLfsVersion(executionContext);
+                if (lfsVersion is null)
+                {
+                    executionContext.Debug("Machine does not have git-lfs installed. Skipping git lfs prune");
+                } else
+                {
+                    int exitCode_lFSPrune = await _gitCommandManager.GitLFSPrune(executionContext, repositoryPath);
+                    if (exitCode_lFSPrune != 0)
+                    {
+                        throw new InvalidOperationException($"Git lfs prune failed with exit code: {exitCode_lFSPrune}");
+                    }
+                }
+
                 // git count-objects after git repack
                 executionContext.Output("Repository status after executing 'git repack'");
                 int exitCode_countobjectsafter = await _gitCommandManager.GitCountObjects(executionContext, repositoryPath);
@@ -1137,6 +1145,8 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
 
         public override void SetVariablesInEndpoint(IExecutionContext executionContext, ServiceEndpoint endpoint)
         {
+            ArgUtil.NotNull(executionContext, nameof(executionContext));
+            ArgUtil.NotNull(endpoint, nameof(endpoint));
             base.SetVariablesInEndpoint(executionContext, endpoint);
             endpoint.Data.Add(Constants.EndpointData.SourceBranch, executionContext.Variables.Build_SourceBranch);
         }
@@ -1183,7 +1193,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Worker.Build
                 // if unable to use git.exe unset http.extraheader, http.proxy or core.askpass, modify git config file on disk. make sure we don't left credential.
                 if (!string.IsNullOrEmpty(configValue))
                 {
-                    executionContext.Warning(StringUtil.Loc("AttemptRemoveCredFromConfig"));
+                    executionContext.Warning(StringUtil.Loc("AttemptRemoveCredFromConfig", configKey));
                     string gitConfig = Path.Combine(targetPath, ".git/config");
                     if (File.Exists(gitConfig))
                     {

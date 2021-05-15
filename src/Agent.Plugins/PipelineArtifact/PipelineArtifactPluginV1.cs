@@ -24,12 +24,12 @@ namespace Agent.Plugins.PipelineArtifact
         public abstract Guid Id { get; }
         protected virtual string TargetPath => "targetPath";
         protected virtual string PipelineId => "pipelineId";
-        protected CallbackAppTraceSource tracer;
+        protected IAppTraceSource tracer;
         public string Stage => "main";
 
         public Task RunAsync(AgentTaskPluginExecutionContext context, CancellationToken token)
         {
-            this.tracer = new CallbackAppTraceSource(str => context.Output(str), System.Diagnostics.SourceLevels.Information);
+            this.tracer = context.CreateArtifactsTracer();
             return this.ProcessCommandInternalAsync(context, token);
         }
 
@@ -208,7 +208,7 @@ namespace Agent.Plugins.PipelineArtifact
             );
 
             PipelineArtifactServer server = new PipelineArtifactServer(tracer);
-            PipelineArtifactDownloadParameters downloadParameters;
+            ArtifactDownloadParameters downloadParameters;
 
             if (buildType == buildTypeCurrent)
             {
@@ -244,7 +244,7 @@ namespace Agent.Plugins.PipelineArtifact
                         throw new ArgumentException(StringUtil.Loc("BuildIdIsNotValid", environmentBuildId));
                     }
                 }
-                downloadParameters = new PipelineArtifactDownloadParameters
+                downloadParameters = new ArtifactDownloadParameters
                 {
                     ProjectRetrievalOptions = BuildArtifactRetrievalOptions.RetrieveByProjectId,
                     ProjectId = projectId,
@@ -292,7 +292,7 @@ namespace Agent.Plugins.PipelineArtifact
 
                 context.Output(StringUtil.Loc("DownloadingFromBuild", pipelineId));
 
-                downloadParameters = new PipelineArtifactDownloadParameters
+                downloadParameters = new ArtifactDownloadParameters
                 {
                     ProjectRetrievalOptions = BuildArtifactRetrievalOptions.RetrieveByProjectName,
                     ProjectName = projectName,
